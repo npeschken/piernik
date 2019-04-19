@@ -57,9 +57,10 @@ contains
       type(grid_container),  pointer       :: cg
       type(cg_list_element), pointer       :: cgl
 
-      integer                              :: n_part
+      integer                              :: n_part, p, k
       real,    dimension(:,:), allocatable :: dist
       integer, dimension(:,:), allocatable :: cells
+      integer, dimension(:), allocatable   :: pdel
 
 #ifdef VERBOSE
       call printinfo('[particle_gravity:update_particle_gravpot_and_acc] Commencing update of particle gravpot & acceleration')
@@ -82,7 +83,8 @@ contains
 
             call update_particle_density_array(n_part, cg, cells)
 
-            call update_particle_potential_energy(n_part, cg, cells, dist)
+            allocate(pdel(n_part))
+            call update_particle_potential_energy(n_part, cg, cells, dist, pdel)
 
             if (is_setacc_int) then
                call update_particle_acc_int(n_part, cg, cells, dist)
@@ -91,6 +93,16 @@ contains
             elseif (is_setacc_tsc) then
                call update_particle_acc_tsc(cg)
             endif
+
+            k=1
+            do p=1, n_part
+               if (pdel(p)==1) then
+                  call cg%pset%remove(k)
+               else
+                  k=k+1
+               endif
+            enddo
+      
             deallocate(cells, dist)
 
          cgl => cgl%nxt
@@ -126,7 +138,7 @@ contains
       ig = qna%ind(prth_n)
       cg%prth = zero
       do p = 1, n_part
-         cg%q(ig)%arr(cells(p,xdim),cells(p,ydim),cells(p,zdim)) = cg%q(ig)%point(cells(p,:)) + one
+         if (.not. cg%pset%p(p)%outside) cg%q(ig)%arr(cells(p,xdim),cells(p,ydim),cells(p,zdim)) = cg%q(ig)%point(cells(p,:)) + one
       enddo
 
    end subroutine update_particle_density_array
@@ -227,12 +239,13 @@ contains
    end subroutine locate_particles_in_cells
 
 !> \brief Determine potential energy in particle positions
-    subroutine update_particle_potential_energy(n_part, cg, cells, dist)
+    subroutine update_particle_potential_energy(n_part, cg, cells, dist, pdel)
 
-      use constants,        only: gpot_n, ndims, half, two, xdim, ydim, zdim
+      use constants,        only: gpot_n, ndims, half, two, xdim, ydim, zdim, zero
       use grid_cont,        only: grid_container
       use named_array_list, only: qna
       use particle_func,    only: df_d_o2, d2f_d2_o2, d2f_dd_o2
+      use units,            only: newtong
 
       implicit none
 
@@ -241,21 +254,42 @@ contains
       integer, dimension(n_part,ndims), intent(in) :: cells
       real,    dimension(n_part,ndims), intent(in) :: dist
       integer                                      :: p
+      integer, dimension(n_part),       intent(out):: pdel
+      real                                         :: Mtot, v_rad
       integer(kind=4)                              :: ig
       real, dimension(n_part)                      :: dpot, d2pot
 
       ig = qna%ind(gpot_n)
+
+      Mtot=0
       do p = 1, n_part
-         dpot(p) = df_d_o2([cells(p, :)], cg, ig, xdim) * dist(p, xdim) + &
+         if (cg%pset%p(p)%outside .eqv. .false.) then
+            Mtot = Mtot + cg%pset%p(p)%mass
+         endif
+      enddo
+      
+      do p = 1, n_part
+         pdel(p)=0
+         if (cg%pset%p(p)%outside .eqv. .false.) then
+            dpot(p) = df_d_o2([cells(p, :)], cg, ig, xdim) * dist(p, xdim) + &
                    df_d_o2([cells(p, :)], cg, ig, ydim) * dist(p, ydim) + &
                    df_d_o2([cells(p, :)], cg, ig, zdim) * dist(p, zdim)
 
-         d2pot(p) = d2f_d2_o2([cells(p, :)], cg, ig, xdim) * dist(p, xdim)**2 + &
+            d2pot(p) = d2f_d2_o2([cells(p, :)], cg, ig, xdim) * dist(p, xdim)**2 + &
                     d2f_d2_o2([cells(p, :)], cg, ig, ydim) * dist(p, ydim)**2 + &
                     d2f_d2_o2([cells(p, :)], cg, ig, zdim) * dist(p, zdim)**2 + &
                 two*d2f_dd_o2([cells(p, :)], cg, ig, xdim, ydim) * dist(p, xdim)*dist(p, ydim) + &
                 two*d2f_dd_o2([cells(p, :)], cg, ig, xdim, zdim) * dist(p, xdim)*dist(p, zdim)
-         cg%pset%p(p)%energy = cg%q(ig)%point(cells(p,:)) + dpot(p) + half * d2pot(p)
+            cg%pset%p(p)%energy = cg%q(ig)%point(cells(p,:)) + dpot(p) + half * d2pot(p)
+         else
+            cg%pset%p(p)%energy = - newtong * cg%pset%p(p)%mass * Mtot / norm2(cg%pset%p(p)%pos(:))
+            v_rad =  dot_product(cg%pset%p(p)%vel(:), cg%pset%p(p)%pos(:)) / norm2(cg%pset%p(p)%pos(:))
+            if ((abs(cg%pset%p(p)%energy) .lt.  half * cg%pset%p(p)%mass * v_rad**2) .and. ( v_rad .gt. 0. )) then
+               pdel(p)=1
+               cg%pset%p(p)%energy=0.
+            endif
+
+         endif
       enddo
 
    end subroutine update_particle_potential_energy
