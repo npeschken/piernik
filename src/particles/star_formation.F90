@@ -32,6 +32,7 @@
 !<
 
 module star_formation
+! pulled by NBODY
 
   implicit none
 
@@ -47,7 +48,7 @@ contains
 
     use cg_leaves,             only: leaves
     use cg_list,               only: cg_list_element
-    use constants,             only: ndims, xdim, ydim, zdim, LO, HI, CENTER, pi, nbdn_n
+    use constants,             only: ndims, xdim, ydim, zdim, LO, HI, CENTER, nbdn_n, pi
     use fluidindex,            only: flind
     use fluidtypes,            only: component_fluid
     use func,                  only: ekin
@@ -126,12 +127,14 @@ contains
     use cg_leaves,             only: leaves
     use cg_list,               only: cg_list_element
     use constants,             only: ndims, xdim, ydim, zdim, LO, HI
-    use cr_data,               only: icr_H1, cr_table
     use fluidindex,            only: flind
     use fluidtypes,            only: component_fluid
     use global,                only: nstep, t, dt
     use grid_cont,             only: grid_container
+#ifdef COSM_RAYS
+    use cr_data,               only: icr_H1, cr_table
     use initcosmicrays,        only: iarr_crn
+#endif /* COSM_RAYS */
     use mpisetup,              only: proc
     use named_array_list,      only: wna
     use particle_types,        only: particle
@@ -172,9 +175,11 @@ contains
                                   cg%w(wna%fi)%arr(pfl%idn,i,j,k) = cg%w(wna%fi)%arr(pfl%idn,i,j,k) + 0.25 * msf / cg%dvol                               ! adding mass
                                   cg%u(pfl%imx:pfl%imz, i, j, k)  = cg%u(pfl%imx:pfl%imz, i, j, k)  + 0.25 * msf / cg%dvol * pset%pdata%vel(:)           ! adding momentum
                                   !print *, 'cr', cg%w(wna%fi)%arr(iarr_crn(cr_table(icr_H1)),i,j,k), 0.1 * 0.00001 * msf / cg%dvol * clight**2 
-                                  cg%w(wna%fi)%arr(iarr_crn(cr_table(icr_H1)),i,j,k) = cg%w(wna%fi)%arr(iarr_crn(cr_table(icr_H1)),i,j,k) + 0.1 * 0.00001 * msf / cg%dvol * clight**2 
+#ifdef COSM_RAYS
+                                  cg%w(wna%fi)%arr(iarr_crn(cr_table(icr_H1)),i,j,k) = cg%w(wna%fi)%arr(iarr_crn(cr_table(icr_H1)),i,j,k) + 0.1 * 0.00001 * msf / cg%dvol * clight**2
+#endif /* COSM_RAYS */
                                   cg%u(pfl%ien,i,j,k)             = cg%u(pfl%ien,i,j,k)             + 0.25 * msf / cg%dvol * sum(pset%pdata%vel(:)**2)   ! adding kinetic energy
-                                  print *, pset%pdata%mass, pset%pdata%tform, msf, cg%u(pfl%ien,i,j,k), 0.00001 * msf / cg%dvol * clight**2
+                                  !print *, pset%pdata%mass, pset%pdata%tform, msf, cg%u(pfl%ien,i,j,k), 0.00001 * msf / cg%dvol * clight**2
                                   cg%u(pfl%ien,i,j,k)              = cg%u(pfl%ien,i,j,k)              + 0.00001 * msf / cg%dvol * clight**2              ! adding SN energy
                                   !print *, 'Feedbacking!', pset%pdata%tform
                                endif
@@ -197,14 +202,16 @@ contains
   subroutine SF_crit(pfl, cg, i, j, k, cond)
 
     use constants,             only: pi
+#ifdef COSM_RAYS
     use crhelpers,             only: divv_i
+#endif /* COSM_RAYS */
     use fluidtypes,            only: component_fluid
     use grid_cont,             only: grid_container
     use named_array_list,      only: wna
     use units,                 only: fpiG
 
     logical, intent(out)                      :: cond
-    real                                      :: density_thr, G
+    real                                      :: density_thr, G, RJ
     integer, intent(in)                       :: i, j, k
     type(grid_container), pointer, intent(in) :: cg
     class(component_fluid), pointer           :: pfl
@@ -214,9 +221,13 @@ contains
     G = fpiG/(4*pi)
     cond = .false.
     if (cg%w(wna%fi)%arr(pfl%idn,i,j,k) .lt. density_thr) return   ! threshold density
+#ifdef COSM_RAYS
     if (cg%q(divv_i)%arr(i,j,k) .ge. 0) return                     ! convergent flow
+#endif /* COSM_RAYS */
     if (cg%w(wna%fi)%arr(pfl%idn,i,j,k) * cg%dvol .lt. 3.0 * 10**6) return   ! part mass > 3 10^5
-    if (cg%w(wna%fi)%arr(pfl%idn,i,j,k) * cg%dvol .lt. pi/6.0 * pfl%cs**3 / G**(3.0/2) / cg%w(wna%fi)%arr(pfl%idn,i,j,k)**0.5 ) return    ! Jeans mass
+    RJ = pfl%cs * sqrt(3*pi/(32*G*cg%w(wna%fi)%arr(pfl%idn,i,j,k)))
+    !print *, 'Jeans mass', 4*pi/3 * RJ**3 * cg%w(wna%fi)%arr(pfl%idn,i,j,k), pi/6.0 * pfl%cs**3 / G**(3.0/2) / cg%w(wna%fi)%arr(pfl%idn,i,j,k)**0.5
+    if (cg%w(wna%fi)%arr(pfl%idn,i,j,k) * cg%dvol .lt. 4*pi/3 * RJ**3 * cg%w(wna%fi)%arr(pfl%idn,i,j,k)) return  !pi/6.0 * pfl%cs**3 / G**(3.0/2) / cg%w(wna%fi)%arr(pfl%idn,i,j,k)**0.5 ) return    ! Jeans mass
 
     !print *, 'yay', cg%w(wna%fi)%arr(pfl%idn,i,j,k) * cg%dvol, pi/6.0 * pfl%cs**3 / fpiG**(3.0/2) / cg%w(wna%fi)%arr(pfl%idn,i,j,k)**0.5 * (4*pi)**(3.0/2)
     cond = .true.

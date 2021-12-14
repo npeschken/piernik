@@ -41,7 +41,7 @@ module thermal
    implicit none
 
    private
-   public ::  init_thermal, thermal_active, cfl_coolheat, thermal_sources, itemp, fit_cooling_curve, cleanup_thermal
+   public ::  init_thermal, thermal_active, cfl_coolheat, thermal_sources, itemp, fit_cooling_curve, cleanup_thermal, Teq
 
    character(len=cbuff_len)        :: cool_model, cool_curve, heat_model, scheme, cool_file
    logical                         :: thermal_active
@@ -446,22 +446,32 @@ contains
                      do j = 1, n(ydim)
                         do k = 1, n(zdim)
                            int_ener = ener(i,j,k) - kinmag_ener(i,j,k)
-                           call find_temp_bin(ta(i,j,k), ii)
-                           if (alpha(ii) .equals. 0.0) then
-                              diff = max(abs(ta(i,j,k) - Teql), 0.000001)
-                              tcool = kbgmh * ta(i,j,k) / (dens(i,j,k) * abs(lambda0(ii)) * diff)
+                           !if (int_ener .gt. 1.0) print *, 'oh no...!', i, j, k, int_ener, ta(i,j,k), dens(i,j,k)
+                           ta(i,j,k) = int_ener * ikbgmh / dens(i,j,k)
+                           if (ta(i,j,k) .lt. 100.0) ta(i,j,k) = 100.0
+                           if (ta(i,j,k) .gt. 10.0**9) ta(i,j,k) = 10.0**9
+                           if (cool_model == 'piecewise_power_law') then
+                              call find_temp_bin(ta(i,j,k), ii)
+                              if (alpha(ii) .equals. 0.0) then
+                                 diff = max(abs(ta(i,j,k) - Teql), 0.000001)
+                                 tcool = kbgmh * ta(i,j,k) / (dens(i,j,k) * abs(lambda0(ii)) * diff)
+                              else
+                                 tcool = kbgmh * ta(i,j,k) / (dens(i,j,k) * abs(lambda0(ii)) * (ta(i,j,k)/Tref(ii))**alpha(ii))
+                              endif
                            else
-                              tcool = kbgmh * ta(i,j,k) / (dens(i,j,k) * abs(lambda0(ii)) * (ta(i,j,k)/Tref(ii))**alpha(ii))
+                              tcool = kbgmh * ta(i,j,k) / (dens(i,j,k) * L0_cool * (ta(i,j,k) / Teq)**alpha_cool)
                            endif
+                           !print *, ta(i,j,k), dens(i,j,k), i, j, k, tcool, int_ener
                            !if ((i==32) .and. (j==32))  print *, ta(i,j,k), tcool, int_ener, ener(i,j,k)
                            dt_cool = min(dt, tcool/10.0)
-                           !print *, tcool, ta(i,j,k)
+                           !if (int_ener < 0) print *, 'oh no!', i,j,k!,  tcool, ta(i,j,k), int_ener, ener(i,j,k)
+                           !print *, tcool, ta(i,j,k), int_ener, ener(i,j,k), dt
                            t1 = 0.0
                            do while (t1 < dt)
-                              !print *, tcool, int_ener
-                              if (int_ener .gt. 0.) ta(i,j,k) = int_ener * ikbgmh / dens(i,j,k)
+                              !if (int_ener > 0) ta(i,j,k) = int_ener * ikbgmh / dens(i,j,k)
                               call temp_EIS(tcool, dt_cool, igamma(pfl%gam), kbgmh, ta(i,j,k), dens(i,j,k), Tnew)
                               int_ener    = dens(i,j,k) * kbgmh * Tnew
+                              if (int_ener .gt. 10.0) print *, 'wow!', i, j, k, int_ener, Tnew, ta(i,j,k), dens(i,j,k), tcool
                               ener(i,j,k) = kinmag_ener(i,j,k) + int_ener
                               ta(i,j,k) = Tnew
                               t1 = t1 + dt_cool
@@ -635,13 +645,14 @@ contains
                Tnew = Teql - sign(1.0, Teql - temp) * (Teql-T1) * exp(-lambda1 * Y0f)
             else
                !Y0 = Y(ii) + 1/(isochoric-alpha0) * ltntrna / lambda1 * (T1/TN)**isochoric * (1 - (T1/temp)**(alpha0-isochoric))
-               !Y0f = 1.0/(isochoric-alpha0) / lambda1 * T1**isochoric * (1 - (T1/temp)**(alpha0-isochoric))
+               Y0f = 1.0/(isochoric-alpha0) / lambda1 * T1**isochoric * (1 - (T1/temp)**(alpha0-isochoric))
                !tcool2 = kbgmh * temp / (lambda1 * (temp/T1)**alpha0 * dens)
                !Y0 = Y0 + (temp/TN)**isochoric * ltntrna / lambda1 * (T1/temp)**alpha0 * dt/tcool2 * fiso
-               !Y0f = Y0f + (temp)**isochoric * dt * fiso * dens / (kbgmh * temp)
+               Y0f = Y0f + (temp)**isochoric * dt * fiso * dens / (kbgmh * temp)
                !Tnew = T1 * (1 - (isochoric-alpha0) * lambda1 / ltntrna * (TN/T1)**isochoric * (Y0 - Y(ii)) )**(1.0/(isochoric-alpha0))
-               !Tnew = T1 * (1 - (isochoric-alpha0) * lambda1 / T1**isochoric * Y0f)**(1.0/(isochoric-alpha0))
-               Tnew = temp * (1 - (isochoric-alpha0) * fiso * dt/tcool)**(1/(isochoric-alpha0))
+               Tnew = T1 * (1 - (isochoric-alpha0) * lambda1 / T1**isochoric * Y0f)**(1.0/(isochoric-alpha0))
+               !if (alpha0 < 0) print *, temp, tcool, alpha0, ii, T1, 1./(isochoric-alpha0), 1 - (isochoric-alpha0) * fiso * dt/tcool
+               !Tnew = temp * (1 - (isochoric-alpha0) * fiso * dt/tcool)**(1./(isochoric-alpha0))
             endif
 
             if (Tnew < 100.0) Tnew = 100.0                        ! To improve

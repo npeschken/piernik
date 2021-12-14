@@ -258,6 +258,7 @@ contains
                mindens = min( minval(dn), mindens )
             enddo
          endif
+         print *, smalld, mindens
 
          if (smallp >= big_float) then
             do i = lbound(flind%all_fluids,1), ubound(flind%all_fluids,1)

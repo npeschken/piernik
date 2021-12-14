@@ -156,7 +156,8 @@ program piernik
 
       call piernik_MPI_Barrier
       call costs_maintenance
-
+      !cfl_violated = .false.
+      !repeat_step = .false.
       if (.not.cfl_violated) then
          call ppp_main%start('write_data', PPP_IO)
          call write_data(output=CHK)
