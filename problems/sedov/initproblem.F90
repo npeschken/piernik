@@ -299,6 +299,8 @@ contains
             !Momentum kick
             do k = kmid-1, kmid+1
                kfact = k-kmid
+               !kfact = 0
+               !k = 0
                do j = jmid-1, jmid+1
                   jfact = j-jmid
                   do i = imid-1, imid+1
@@ -398,7 +400,7 @@ contains
               jmid = (cg%lhn(ydim,LO)+ cg%lhn(ydim,HI))/2
               imid = (cg%lhn(xdim,LO)+ cg%lhn(xdim,HI))/2
               cg%u(fl%ien,imid,jmid,kmid) = cg%u(fl%ien,imid,jmid,kmid) + Eexpl / cg%dvol
-              !print *, imid, jmid, kmid, cg%u(fl%ien,imid,jmid,kmid), Eexpl / cg%dvol
+              print *, imid, jmid, kmid, cg%u(fl%ien,imid,jmid,kmid), Eexpl / cg%dvol
               
               cgl => cgl%nxt
            enddo
