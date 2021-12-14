@@ -1,0 +1,54 @@
+#define USER_RULES
+
+#ifndef NEWSET
+/* #undef DEBUG */
+/* #undef VERBOSE */
+
+/* adiabatic or isothermal */
+#undef ISO
+
+/* number of different fluids */
+
+#define IONIZED
+#define COSM_RAYS
+
+/* choosing freezing speed */
+#define LOCAL_FR_SPEED
+
+/* physics including */
+#define MAGNETIC
+#undef RESISTIVE
+
+/* gravity type choosing */
+#define GRAV
+#define SELF_GRAV
+
+/* test MULTIGRID solvers either with "-d MULTIGRID" in the setup call or by uncommenting the next line */
+#define MULTIGRID
+
+/* structure features including */
+#define SNE_DISTR
+#define SN_DISTRIBUTION
+#define COSM_RAYS_SOURCES
+#undef MASS_COMPENS
+#undef DISTR_INFLOW
+#define HYDROSTATIC_V2
+#define DIPOLS
+
+/* numerical solutions and limitations */
+#define ANY_LIMITS
+/* #define VZ_LIMITS */
+#define OVLP_ON_BNDS
+#define ZERO_BND_EMF
+
+/* problem specific directives */
+#define ONE_CELL_SN
+#define INSERTSNONCEASTEP
+#endif /* !NEWSET */
+
+#define NBODY
+#define NBODY_MULTIGRID
+#undef NBODY_GRIDDIRECT
+#define NBODY_1FILE
+
+#define THERM

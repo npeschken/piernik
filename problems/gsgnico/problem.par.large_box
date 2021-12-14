@@ -1,0 +1,164 @@
+ $BASE_DOMAIN
+    n_d = 256, 256, 256
+    nb  = 6
+    bnd_xl = 'out'
+    bnd_xr = 'out'
+    bnd_yl = 'out'
+    bnd_yr = 'out'
+    bnd_zl = 'outd'
+    bnd_zr = 'outd'
+    xmin   = -5.0e4
+    xmax   =  5.0e4
+    ymin   = -5.0e4
+    ymax   =  5.0e4
+    zmin   = -5.0e4
+    zmax   =  5.0e4
+ /
+
+ $AMR
+ /
+
+ $MPI_BLOCKS
+    psize = 1, 1, 1
+!    allow_uneven = .true.
+!    allow_noncart = .true.
+!    dd_unif_quality = 1.1
+!    dd_rect_quality = 1.1
+!    use_comm3d  = .false.
+ /
+
+ $UNITS
+    units_set = "psm"
+ /
+
+ $RESTART_CONTROL
+    restart  = 'last'
+    res_id   = ''
+    nrestart = 0
+ /
+
+ $END_CONTROL
+    tend   = 100.0
+    nend   = 100000
+    wend   = 100.0
+ /
+
+ $OUTPUT_CONTROL
+    problem_name = 'galdisk'
+    run_id       = 's01'
+    dt_hdf       = 1.0
+    dt_res       = 50.0
+    dt_log       = 1.0e-6
+    dt_tsl       = 1.0e-6
+    vars(1)  = 'dens'
+    vars(2)  = 'velx'
+    vars(3)  = 'vely'
+    vars(4)  = 'velz'
+    vars(5)  = 'encr'
+    vars(6)  = 'magx'
+    vars(7)  = 'magy'
+    vars(8)  = 'magz'
+    vars(9)  = 'gpot'
+    vars(10) = 'mgso'
+    vars(11) = 'sfrl'
+ /
+
+ $NUMERICAL_SETUP
+    cfl    = 0.5
+    smalld = 1.e-6
+    smallei= 1.e-7
+    integration_order = 2
+    limiter= 'vanleer'
+ /
+
+ $PIERNIK_DEBUG
+ /
+
+ $FLUID_IONIZED
+    cs_iso   = 10.0
+    selfgrav = .true.
+ /
+
+ $COSMIC_RAYS
+    ncrn         = 1
+    ncre         = 0
+    cfl_cr       = 0.9      ! liczba couranta dla dyfuzji CR (wsp 0.5 w kodzie)
+    smallecr     = 0.0e-6   ! lower limit & outflow boundary value for ecr
+    cr_active    = 1.0      ! gdy 0 wtedy grad p_cr nie jest brany pod uwage w r.ruchu
+    gamma_crn    = 1.555555 ! wykl. adiabatyczny neutronow CR
+    gamma_cre    = 1.555555 ! wykl. adiabatyczny elektronow CR
+    cr_eff       = 0.1      ! czesc energii SN (=10^51 erg) zamieniona w CR
+    K_crn_paral  = 300000.   ! wsp. dyfuzji CRN wzdluz B
+    K_cre_paral  = 300000.   ! wsp. dyfuzji CRE wzdluz B
+    K_crn_perp   = 3000.     ! wsp. dyfuzji CRN wpoprzek B
+    K_cre_perp   = 3000.     ! wsp. dyfuzji CRE wpoprzek B
+    use_CRsplit   = .false.
+    divv_scheme = "6lp"
+ /
+
+ $INTERACTIONS
+ /
+
+ $MULTIGRID_SOLVER
+    stdout = .true.
+    level_max =4
+    ord_prolong   = -2
+    dirty_debug = .true.
+ /
+
+ $MULTIGRID_DIFFUSION
+    diff_explicit = .true.
+    diff_theta     = 0.6
+    diff_tstep_fac = 30
+    norm_tol = 1e-3
+    nsmool = 4
+    nsmoob = 4
+    max_cycles = 10
+    diff_bnd_str = "zero" ! "free"
+ /
+
+ $MULTIGRID_GRAVITY
+     norm_tol  = 1.e-6
+     nsmool    = 5
+     grav_bnd_str  = "isolated"
+ /
+
+ $GRAVITY
+    user_grav = .true.
+    nsub      = 10
+ /
+
+ $RESISTIVITY
+    cfl_resist   =    0.9   ! liczba Couranta dla opornosci, (wsp. 0.5) w kodzie
+    eta_0        =   10.0   ! opornosc jednorodna
+    eta_1        =    0.0   ! opornosc zlokalizowana, dziala powyzej j_crit
+    j_crit       = 1000.0   ! prad krytyczny
+    eta_scale    =    4
+    deint_max    =    0.01
+ /
+
+ $SUPERNOVAE_PARAMS
+    add_encr      = .true.
+ /
+
+ $FLOORCEILS
+    floor_vz       = -300.0
+    alfasupp       = 1.0
+    rsup           = 4.8e4
+ /
+
+ $PROBLEM_CONTROL
+    rhoa           = 1.0e-6
+    d0             = 1.0
+    r_max          = 1.0e4
+    r_min          = 0.0
+    mtrout         = 10
+    mtrin          = 10
+    mf_orient      = 'vectoroidal'
+    alpha          = 10.0
+    beta_cr        = 1.0           ! okresla wklad CR w poczatkowej rownowadze (podobnie jak alfa dla B)
+    dmulti         = 10.0
+ /
+
+ $IO_PARAMS
+ /

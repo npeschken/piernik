@@ -1,0 +1,106 @@
+ $BASE_DOMAIN
+    n_d = 33,33,33
+    bnd_xl = 'out'
+    bnd_xr = 'out'
+    bnd_yl = 'out'
+    bnd_yr = 'out'
+    bnd_zl = 'out'
+    bnd_zr = 'out'
+    xmin   =-1.0e20
+    xmax   = 1.0e20
+    ymin   =-1.0e20
+    ymax   = 1.0e20
+    zmin   =-1.0e20
+    zmax   = 1.0e20
+ /
+
+ $MPI_BLOCKS
+ /
+
+ $UNITS
+    units_set = 'cgs'
+ /
+
+ $RESTART_CONTROL
+    restart = ''
+ /
+
+ $END_CONTROL
+    tend   = 3.5e11
+ /
+
+ $OUTPUT_CONTROL
+    colormode = .false.
+    problem_name = 'sedov'
+    run_id =  'ri2'
+    dt_hdf  = 0.0e10
+    dt_res  = 0.0e13
+    dt_log  = 1.0e-5
+    dt_tsl  = 1.0e-5
+    vars(1:) = 'ener', 'dens', 'velx', 'vely', 'velz', 'temp'
+ /
+
+ $FLUID_IONIZED
+ /
+
+ $FLUID_NEUTRAL
+    gamma = 1.666666666
+ /
+
+ $NUMERICAL_SETUP
+    cflcontrol = 'none'
+    cfl    = 0.8
+    smalld = 1.0e-28
+    smallei= 1.0e-16
+    solver_str = 'riemann'
+    limiter = 'vanleer'
+ /
+
+ $GRAVITY
+ /
+
+ $PROBLEM_CONTROL
+    d0     = 1.67e-24
+    p0     = 1.60e-12
+    Eexpl  = 1.00e+51
+    x0     = 0.0
+    y0     = 0.0
+    z0     = 0.0
+    r0     = 0.5e19
+    n_sn   = 10
+ /
+
+ $MULTIGRID_SOLVER
+ /
+
+ $INTERACTIONS
+ /
+
+
+ $FLUID_TRACER
+ /
+
+ $THERMAL
+    thermal_active = .TRUE.
+    cool_model     = 'piecewise_power_law'
+    cool_curve     = 'power_law'
+    cool_file      = ''
+    heat_model     = 'G012'
+    scheme         = 'EIS'
+    alpha_cool     = 1.5
+    Teq            = 1161.343828
+    Lambda_0       = 1.0e-25
+    G0             = 1.0e-25
+    G1             = 0.0e-25 !40.44e-25
+    G2             = 0.0e-27
+    x_ion          = 1.0
+    cfl_coolheat   = 0.000001
+    isochoric      = 1
+/
+
+ $PIERNIK_IO_DEBUG
+    !force_hdf5_dump = .TRUE.
+    !force_log_dump = .TRUE.
+    !force_res_dump = .TRUE.
+
+/

@@ -33,12 +33,13 @@ module initproblem
    implicit none
 
    private
-   public  :: read_problem_par, problem_initial_conditions, problem_pointers
+   public  :: read_problem_par, problem_initial_conditions, problem_pointers, p0, d0
 
    integer(kind=4) :: n_sn
    real            :: d0, p0, bx0, by0, bz0, Eexpl, x0, y0, z0, r0, smooth, dt_sn, r, t_sn, dtrig
    real :: ref_thr   !< refinement threshold
    real :: ref_eps   !< smoother filter
+   logical, allocatable, dimension(:) :: onetime
 
    namelist /PROBLEM_CONTROL/ d0, p0, bx0, by0, bz0, Eexpl, x0, y0, z0, r0, smooth, n_sn, dt_sn, ref_thr, ref_eps, dtrig
 
@@ -48,14 +49,22 @@ contains
 
    subroutine problem_pointers
 
+#ifdef HDF5
+      use dataio_user, only: user_vars_hdf5
+#endif /* HDF5 */
       use dataio_user, only: user_tsl
-      use user_hooks,  only: problem_domain_update, late_initial_conditions
+      use user_hooks,  only: problem_domain_update, late_initial_conditions, problem_customize_solution
 
       implicit none
 
       user_tsl                => sedov_tsl
       problem_domain_update   => sedov_dist_to_edge
       late_initial_conditions => sedov_late_init
+#ifdef HDF5
+      user_vars_hdf5 => therm_inst_vars_hdf5
+#endif /* HDF5 */
+      problem_customize_solution => delayed_SN
+
 
    end subroutine problem_pointers
 
@@ -187,14 +196,21 @@ contains
       use fluidindex,   only: flind
       use func,         only: operator(.notequals.)
       use grid_cont,    only: grid_container
+      use global,       only: dt
+      use timestep,     only: check_cfl_violation
+#ifdef THERM
+      use thermal,          only: itemp, thermal_active, Teq
+      use units,            only: mH, kboltz
+#endif /* THERM */
 
       implicit none
 
       integer, parameter              :: isub = 4
       integer                         :: i, j, k, p, ii, jj, kk
+      integer                         :: kmid, jmid, imid, ifact, jfact, kfact
       type(cg_list_element),  pointer :: cgl
       type(grid_container),   pointer :: cg
-      real :: x, y, z, s
+      real :: x, y, z, s, pos, fact
 
       ! BEWARE:
       !  3 triple loop are completely unnecessary here, but this problem serves
@@ -218,6 +234,12 @@ contains
                      cg%u(fl%imy,i,j,k) = 0.0
                      cg%u(fl%imz,i,j,k) = 0.0
                      cg%u(fl%ien,i,j,k) = p0/(fl%gam_1)
+#ifdef THERM
+                     if (thermal_active) then
+                        cg%q(itemp)%arr(i,j,k) = p0 * mH / kboltz / d0
+                        Teq = p0 * mH / kboltz / d0
+                     endif
+#endif /* THERM */
                      cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)
                   enddo
                enddo
@@ -225,37 +247,84 @@ contains
 
 ! Explosion
 
-            do k = cg%lhn(zdim,LO), cg%lhn(zdim,HI)
-               do j = cg%lhn(ydim,LO), cg%lhn(ydim,HI)
-                  do i = cg%lhn(xdim,LO), cg%lhn(xdim,HI)
-                     r = (cg%x(i)-x0)**2 + (cg%y(j)-y0)**2 + (cg%z(k)-z0)**2
-                     if ( r < ((1 + smooth) * (r0 + maxval(cg%dl, mask=dom%has_dir) ))**2) then
-                        do ii = 1, isub
-                           x = cg%x(i)-x0
-                           if (dom%has_dir(xdim)) x = x + cg%dx*(2*ii -isub - 1)/real(2*isub)
-                           do jj = 1, isub
-                              y = cg%y(j)-y0
-                              if (dom%has_dir(ydim)) y = y + cg%dy*(2*jj -isub - 1)/real(2*isub)
-                              do kk = 1, isub
-                                 z = cg%z(k)-z0
-                                 if (dom%has_dir(zdim)) z = z + cg%dx*(2*kk -isub - 1)/real(2*isub)
-                                 r = sqrt(x*x+y*y+z*z)/r0 - 1.
-                                 if (r < -smooth) then
-                                    s = 1.
-                                 else if (r > smooth) then
-                                    s = 0.
-                                 else
-                                    s = 0.5
-                                    if (smooth .notequals. 0.) s = 0.5 * (1. - sin(pi / 2. * r/smooth))
-                                 endif
-                                 if (s > 0.) cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + Eexpl/isub**ndims * s
-                              enddo
-                           enddo
-                        enddo
+!            do k = cg%lhn(zdim,LO), cg%lhn(zdim,HI)
+!               do j = cg%lhn(ydim,LO), cg%lhn(ydim,HI)
+!                  do i = cg%lhn(xdim,LO), cg%lhn(xdim,HI)
+!                     r = (cg%x(i)-x0)**2 + (cg%y(j)-y0)**2 + (cg%z(k)-z0)**2
+!                     if ( r < ((1 + smooth) * (r0 + maxval(cg%dl, mask=dom%has_dir) ))**2) then
+!                        print *, i,j,k
+!                        do ii = 1, isub
+!                           x = cg%x(i)-x0
+!                           if (dom%has_dir(xdim)) x = x + cg%dx*(2*ii -isub - 1)/real(2*isub)
+!                           do jj = 1, isub
+!                              y = cg%y(j)-y0
+!                              if (dom%has_dir(ydim)) y = y + cg%dy*(2*jj -isub - 1)/real(2*isub)
+!                              do kk = 1, isub
+!                                 z = cg%z(k)-z0
+!                                 if (dom%has_dir(zdim)) z = z + cg%dx*(2*kk -isub - 1)/real(2*isub)
+!                                 r = sqrt(x*x+y*y+z*z)/r0 - 1.
+!                                 if (r < -smooth) then
+!                                    s = 1.
+!                                 else if (r > smooth) then
+!                                    s = 0.
+!                                 else
+!                                    s = 0.5
+!                                    if (smooth .notequals. 0.) s = 0.5 * (1. - sin(pi / 2. * r/smooth))
+!                                 endif
+!                                 if (s > 0.) cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + Eexpl/isub**ndims * s/(4./3.*pi*r0**3)
+!#ifdef THERM
+!                                 if (thermal_active) then
+!                                    if (s > 0.) cg%q(itemp)%arr(i,j,k) = p0 * mH / kboltz / d0 + (fl%gam_1) * mH/kboltz * Eexpl/isub**ndims * s/(4./3.*pi*r0**3) / d0
+!                                 endif
+!#endif /* THERM */
+!                                 !print *, p0/(fl%gam_1), Eexpl/isub**ndims * s/(4./3.*pi*r0**3), cg%u(fl%ien,i,j,k)
+!                              enddo
+!                           enddo
+!                        enddo
+!                     endif
+!                  enddo
+!               enddo
+            !            enddo
+
+            kmid = (cg%lhn(zdim,LO)+ cg%lhn(zdim,HI))/2
+            jmid = (cg%lhn(ydim,LO)+ cg%lhn(ydim,HI))/2
+            imid = (cg%lhn(xdim,LO)+ cg%lhn(xdim,HI))/2
+            !print *, imid, jmid, kmid
+            !cg%u(fl%ien,imid,jmid,kmid) = cg%u(fl%ien,imid,jmid,kmid) + Eexpl / cg%dvol    ! Initial SN energy injection
+
+            !if (thermal_active) then
+            !   cg%q(itemp)%arr(i,j,k) = p0 * mH / kboltz / d0 + (fl%gam_1) * mH/kboltz * Eexpl / cg%dvol
+            !endif
+
+            !Momentum kick
+            do k = kmid-1, kmid+1
+               kfact = k-kmid
+               do j = jmid-1, jmid+1
+                  jfact = j-jmid
+                  do i = imid-1, imid+1
+                     ifact = i-imid
+
+                     pos = abs(kfact) + abs(jfact) + abs(ifact)
+                     if (pos==0) then
+                        cycle
+                     else if (pos==1) then
+                        fact = 1.0
+                     else if (pos==2) then
+                        fact = 1.0/sqrt(2.0)
+                     else
+                        fact = 1.0/sqrt(3.0)
                      endif
+
+                     !print *, i, j, k, fact
+                     cg%u(fl%imx,i,j,k) = cg%u(fl%imx,i,j,k) + fact * ifact * 1.0 * 10.0**41 / cg%dvol
+                     cg%u(fl%imy,i,j,k) = cg%u(fl%imy,i,j,k) + fact * jfact * 1.0 * 10.0**41 / cg%dvol
+                     cg%u(fl%imz,i,j,k) = cg%u(fl%imz,i,j,k) + fact * kfact * 1.0 * 10.0**41 / cg%dvol
+                     !print *, sqrt(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)
+                     cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)
                   enddo
                enddo
             enddo
+                        
 
             if (fl%tag == ION) then
                call cg%set_constant_b_field([bx0, by0, bz0])
@@ -291,7 +360,56 @@ contains
       enddo
 
    end subroutine problem_initial_conditions
-!-----------------------------------------------------------------------------
+   !-----------------------------------------------------------------------------
+
+   subroutine delayed_SN(forward)
+
+     use cg_leaves,    only: leaves
+     use cg_list,      only: cg_list_element
+     use constants,    only: xdim, ydim, zdim, LO, HI
+     use fluidindex,   only: flind
+     use global,       only: t, nstep
+     use grid_cont,    only: grid_container
+     use units,        only: myr
+
+     implicit none
+
+     logical, intent(in)                :: forward
+     integer                            :: i, j, k, kmid, jmid, imid, p
+     type(cg_list_element),  pointer    :: cgl
+     type(grid_container),   pointer    :: cg
+
+     !return
+     if (.not. forward) return
+     if (t < 9.0*10.0**13) then
+        if (.not. allocated(onetime)) allocate(onetime(1))   ! Condition to ensure the SN energy is only injected once, around 3 Myr. There's probably a better way to do that.
+        return
+     endif
+
+     if (.not. allocated(onetime)) return
+     
+      do p = 1, flind%energ
+         associate(fl => flind%all_fluids(p)%fl)
+           cgl => leaves%first
+           do while (associated(cgl))
+              cg => cgl%cg
+
+              kmid = (cg%lhn(zdim,LO)+ cg%lhn(zdim,HI))/2
+              jmid = (cg%lhn(ydim,LO)+ cg%lhn(ydim,HI))/2
+              imid = (cg%lhn(xdim,LO)+ cg%lhn(xdim,HI))/2
+              cg%u(fl%ien,imid,jmid,kmid) = cg%u(fl%ien,imid,jmid,kmid) + Eexpl / cg%dvol
+              !print *, imid, jmid, kmid, cg%u(fl%ien,imid,jmid,kmid), Eexpl / cg%dvol
+              
+              cgl => cgl%nxt
+           enddo
+         end associate
+      enddo
+      deallocate(onetime)
+      print *, "SN ENERGY INJECTED!"
+
+   end subroutine delayed_SN
+
+   !-----------------------------------------------------------------------------
    subroutine sedov_tsl(user_vars, tsl_names)
 
       use constants,   only: pSUM
@@ -441,5 +559,50 @@ contains
       enddo
 
    end subroutine sedov_late_init
+
+!-----------------------------------------------------------------------------
+
+   subroutine therm_inst_vars_hdf5(var, tab, ierrh, cg)
+
+      use constants,        only: xdim, ydim, zdim
+      use fluidindex,       only: flind
+      use fluidtypes,       only: component_fluid
+      use func,             only: emag, ekin
+      use grid_cont,        only: grid_container
+      use named_array_list, only: wna
+      use units,            only: kboltz, mH
+
+      implicit none
+
+      character(len=*),               intent(in)             :: var
+      real, dimension(:,:,:),         intent(inout)          :: tab
+      integer,                        intent(inout)          :: ierrh
+      type(grid_container), pointer,  intent(in)             :: cg
+      real, dimension(cg%is:cg%ie, cg%js:cg%je, cg%ks:cg%ke) :: eint, kin_ener, mag_ener, temp
+      class(component_fluid), pointer                        :: pfl
+
+      !> \warning ONLY ONE FLUID IS USED!!!
+      pfl => flind%all_fluids(1)%fl
+      if (pfl%has_energy) then
+            kin_ener = ekin(cg%w(wna%fi)%span(pfl%imx,cg%ijkse), cg%w(wna%fi)%span(pfl%imy,cg%ijkse), cg%w(wna%fi)%span(pfl%imz,cg%ijkse), cg%w(wna%fi)%span(pfl%idn,cg%ijkse))
+            if (pfl%is_magnetized) then
+               mag_ener = emag(cg%w(wna%bi)%span(xdim,cg%ijkse), cg%w(wna%bi)%span(ydim,cg%ijkse), cg%w(wna%bi)%span(zdim,cg%ijkse))
+               eint = cg%w(wna%fi)%span(pfl%ien,cg%ijkse) - kin_ener - mag_ener
+            else
+               eint = cg%w(wna%fi)%span(pfl%ien,cg%ijkse) - kin_ener
+            endif
+      endif
+
+      temp = (pfl%gam-1)*mH/kboltz*eint/cg%w(wna%fi)%span(pfl%idn,cg%ijkse) ! this is where the dumped temperature is computed throughout
+
+      ierrh = 0
+      select case (trim(var))
+         case ("temp")
+            tab(:,:,:) = real(temp, 4)
+         case default
+            ierrh = -1
+      end select
+
+    end subroutine therm_inst_vars_hdf5
 
 end module initproblem
