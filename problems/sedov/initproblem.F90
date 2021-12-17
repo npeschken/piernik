@@ -39,7 +39,7 @@ module initproblem
    real            :: d0, p0, bx0, by0, bz0, Eexpl, x0, y0, z0, r0, smooth, dt_sn, r, t_sn, dtrig
    real :: ref_thr   !< refinement threshold
    real :: ref_eps   !< smoother filter
-   logical, allocatable, dimension(:) :: onetime
+   !logical :: SN_expl_waiting = .true.
 
    namelist /PROBLEM_CONTROL/ d0, p0, bx0, by0, bz0, Eexpl, x0, y0, z0, r0, smooth, n_sn, dt_sn, ref_thr, ref_eps, dtrig
 
@@ -53,7 +53,7 @@ contains
       use dataio_user, only: user_vars_hdf5
 #endif /* HDF5 */
       use dataio_user, only: user_tsl
-      use user_hooks,  only: problem_domain_update, late_initial_conditions, problem_customize_solution
+      use user_hooks,  only: problem_domain_update, late_initial_conditions, problem_customize_solution, user_reaction_to_redo_step
 
       implicit none
 
@@ -64,6 +64,7 @@ contains
       user_vars_hdf5 => therm_inst_vars_hdf5
 #endif /* HDF5 */
       problem_customize_solution => delayed_SN
+      !user_reaction_to_redo_step => prepare_redoing_SN
 
 
    end subroutine problem_pointers
@@ -199,7 +200,7 @@ contains
       use global,       only: dt
       use timestep,     only: check_cfl_violation
 #ifdef THERM
-      use thermal,          only: itemp, thermal_active, Teq
+      use thermal,          only: itemp, thermal_active, Teq, fit_cooling_curve
       use units,            only: mH, kboltz
 #endif /* THERM */
 
@@ -215,6 +216,12 @@ contains
       ! BEWARE:
       !  3 triple loop are completely unnecessary here, but this problem serves
       !  as an educational example
+#ifdef THERM
+      if (thermal_active) then
+         Teq = p0 * mH / kboltz / d0
+         call fit_cooling_curve()
+      endif
+#endif /* THERM */
 
       do p = 1, flind%energ
          associate(fl => flind%all_fluids(p)%fl)
@@ -237,7 +244,6 @@ contains
 #ifdef THERM
                      if (thermal_active) then
                         cg%q(itemp)%arr(i,j,k) = p0 * mH / kboltz / d0
-                        Teq = p0 * mH / kboltz / d0
                      endif
 #endif /* THERM */
                      cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)
@@ -318,11 +324,11 @@ contains
                      endif
 
                      !print *, i, j, k, fact
-                     cg%u(fl%imx,i,j,k) = cg%u(fl%imx,i,j,k) + fact * ifact * 1.0 * 10.0**41 / cg%dvol
-                     cg%u(fl%imy,i,j,k) = cg%u(fl%imy,i,j,k) + fact * jfact * 1.0 * 10.0**41 / cg%dvol
-                     cg%u(fl%imz,i,j,k) = cg%u(fl%imz,i,j,k) + fact * kfact * 1.0 * 10.0**41 / cg%dvol
+                     !cg%u(fl%imx,i,j,k) = cg%u(fl%imx,i,j,k) + fact * ifact * 2.0 * 10.0**46 / cg%dvol / 26.0
+                     !cg%u(fl%imy,i,j,k) = cg%u(fl%imy,i,j,k) + fact * jfact * 2.0 * 10.0**46 / cg%dvol / 26.0
+                     !cg%u(fl%imz,i,j,k) = cg%u(fl%imz,i,j,k) + fact * kfact * 2.0 * 10.0**46 / cg%dvol / 26.0
                      !print *, sqrt(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)
-                     cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)
+                     !cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)
                   enddo
                enddo
             enddo
@@ -370,25 +376,21 @@ contains
      use cg_list,      only: cg_list_element
      use constants,    only: xdim, ydim, zdim, LO, HI
      use fluidindex,   only: flind
-     use global,       only: t, nstep
+     use global,       only: t, dt
      use grid_cont,    only: grid_container
-     use units,        only: myr
+     !use timestep,     only: timestep_fluids
+     use units,        only: myr, Msun
 
      implicit none
 
      logical, intent(in)                :: forward
-     integer                            :: i, j, k, kmid, jmid, imid, p
+     integer                            :: i, j, k, kmid, jmid, imid, p, ifact, jfact, kfact
      type(cg_list_element),  pointer    :: cgl
      type(grid_container),   pointer    :: cg
+     real                               :: pos, fact, padd
 
      !return
      if (.not. forward) return
-     if (t < 9.0*10.0**13) then
-        if (.not. allocated(onetime)) allocate(onetime(1))   ! Condition to ensure the SN energy is only injected once, around 3 Myr. There's probably a better way to do that.
-        return
-     endif
-
-     if (.not. allocated(onetime)) return
      
       do p = 1, flind%energ
          associate(fl => flind%all_fluids(p)%fl)
@@ -399,17 +401,62 @@ contains
               kmid = (cg%lhn(zdim,LO)+ cg%lhn(zdim,HI))/2
               jmid = (cg%lhn(ydim,LO)+ cg%lhn(ydim,HI))/2
               imid = (cg%lhn(xdim,LO)+ cg%lhn(xdim,HI))/2
-              cg%u(fl%ien,imid,jmid,kmid) = cg%u(fl%ien,imid,jmid,kmid) + Eexpl / cg%dvol
-              print *, imid, jmid, kmid, cg%u(fl%ien,imid,jmid,kmid), Eexpl / cg%dvol
-              
+              ! Momentum kick
+              do k = kmid-1, kmid+1
+                 kfact = k-kmid
+                 do j = jmid-1, jmid+1
+                    jfact = j-jmid
+                    do i = imid-1, imid+1
+                       ifact = i-imid
+
+                       pos = abs(kfact) + abs(jfact) + abs(ifact)
+                       if (pos==0) then
+                          cycle
+                       else if (pos==1) then
+                          fact = 1.0
+                       else if (pos==2) then
+                          fact = 1.0/sqrt(2.0)
+                       else
+                          fact = 1.0/sqrt(3.0)
+                       endif
+
+                       if (t < 6.5 * myr) then
+                          padd = 2.0 * 10.0**46 / cg%dvol / 26.0 * 2*dt/(6.5*myr)
+                       else if (t < 46.5*myr) then
+                          padd =  36000 * 10**5 * Msun * 10**5 / cg%dvol / 26.0 * 2*dt/(40*myr)
+                       endif
+                       !print *, i, j, k, fact
+                       cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) - 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)  ! remove ekin
+                       cg%u(fl%imx,i,j,k) = cg%u(fl%imx,i,j,k) + fact * ifact * padd
+                       cg%u(fl%imy,i,j,k) = cg%u(fl%imy,i,j,k) + fact * jfact * padd
+                       cg%u(fl%imz,i,j,k) = cg%u(fl%imz,i,j,k) + fact * kfact * padd
+                       !print *, sqrt(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)
+                       cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)  ! add new ekin
+                    enddo
+                 enddo
+              enddo
+              !print *, 'momentum added', padd
+              !if (t < 6.5 * myr) return
+              !if (.not. SN_expl_waiting) return
+              if ((t-dt < 6.5*myr) .and. (t+dt) .gt. 6.5*myr) then
+                 cg%u(fl%ien,imid,jmid,kmid) = cg%u(fl%ien,imid,jmid,kmid) + Eexpl / cg%dvol
+                 print *, "SN ENERGY INJECTED!"
+              endif
+              !SN_expl_waiting = .false.
+              !print *, imid, jmid, kmid, cg%u(fl%ien,imid,jmid,kmid), Eexpl / cg%dvol
+              !call timestep_fluid(cg, fl, dt, c)
               cgl => cgl%nxt
            enddo
          end associate
       enddo
-      deallocate(onetime)
-      print *, "SN ENERGY INJECTED!"
 
-   end subroutine delayed_SN
+    end subroutine delayed_SN
+
+    !subroutine prepare_redoing_SN
+
+    !  SN_expl_waiting = .true.
+
+    !end subroutine prepare_redoing_SN
 
    !-----------------------------------------------------------------------------
    subroutine sedov_tsl(user_vars, tsl_names)
@@ -422,15 +469,18 @@ contains
 
       real, dimension(:), intent(inout), allocatable                       :: user_vars
       character(len=*), dimension(:), intent(inout), allocatable, optional :: tsl_names
-      real :: output
+      real :: output, momtot
 
       if (present(tsl_names)) then
          call pop_vector(tsl_names, len(tsl_names(1)), ["foobar_sedov"])    !   add to header
+         call pop_vector(tsl_names, len(tsl_names(2)), ["momentum    "])    !  add to header
       else
          ! do mpi stuff here...
          output = real(proc,8)
          call piernik_MPI_Allreduce(output, pSUM)
          if (master) call pop_vector(user_vars,[output])                 !   pop value
+            call count_momentum(momtot)
+         if (master) call pop_vector(user_vars, [momtot])                                                          ! pop value
       endif
 
    end subroutine sedov_tsl
@@ -606,5 +656,58 @@ contains
       end select
 
     end subroutine therm_inst_vars_hdf5
+
+
+    subroutine sedov_tsl2(user_vars, tsl_names)
+
+      use diagnostics, only: pop_vector
+
+      implicit none
+
+      real,             dimension(:), intent(inout), allocatable           :: user_vars
+      character(len=*), dimension(:), intent(inout), allocatable, optional :: tsl_names
+      real                                                                 :: momtot
+
+      if (present(tsl_names)) then
+         call pop_vector(tsl_names, len(tsl_names(1)), ["momentum   "])                                 ! add to header
+         call count_momentum(momtot)
+         call pop_vector(user_vars, [momtot])                                                          ! pop value 
+
+      endif
+
+    end subroutine sedov_tsl2
+
+
+    subroutine count_momentum(momtot)
+
+      use cg_leaves,        only: leaves
+      use constants,        only: LO, HI, xdim, ydim, zdim, pSUM
+      use fluidindex,       only: flind
+      use grid_cont,        only: grid_container
+      use mpisetup,         only: piernik_MPI_Allreduce
+      use named_array,      only: p3
+
+      implicit none
+
+      integer                       :: i, j, k, p
+      type(grid_container), pointer :: cg
+      real, intent(out)             :: momtot
+
+      momtot = 0.0
+      do p = 1, flind%energ
+         associate (fl => flind%all_fluids(p)%fl)
+           cg => leaves%first%cg
+           do k = cg%lhn(zdim,LO), cg%lhn(zdim,HI)
+              do j = cg%lhn(ydim,LO), cg%lhn(ydim,HI)
+                 do i = cg%lhn(xdim,LO), cg%lhn(xdim,HI)
+                    momtot = momtot + sqrt(cg%u(fl%imx,i,j,k)**2 + cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2) * cg%dvol
+                 enddo
+              enddo
+           enddo
+         end associate
+      enddo
+      call piernik_MPI_Allreduce(momtot, pSUM)
+
+    end subroutine count_momentum
 
 end module initproblem
