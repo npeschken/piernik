@@ -176,7 +176,7 @@ contains
       call all_cg%reg_var('Temperature')          ! Make it cleaner
       itemp = qna%ind('Temperature')
 
-      call fit_cooling_curve()
+      !call fit_cooling_curve()
 
       if (scheme == 'Explicit') call warn('[thermal:init_thermal][scheme: Explicit] Warning: substepping with a different timestep for every cell in the Explicit scheme leads to perturbations. Take a very small cfl_coolheat (~10^-6) or use a constant timestep.')
 
@@ -263,6 +263,7 @@ contains
 
       call fit_proc(nbins, logT, lambda)   ! Find nfuncs and Perform fit
       deallocate(logT, lambda, cool, heat)
+      close(unit=coolfile)
 
    end subroutine fit_cooling_curve
 
@@ -294,6 +295,7 @@ contains
       do iter = 1, 2
          set_nfuncs = (iter == 1)
          fill_array = (iter == 2)
+         if ((allocated(Tref)) .and. (fill_array)) return
          if (fill_array) allocate(Tref(nfuncs), alpha(nfuncs), lambda0(nfuncs))
 
          i = 1
@@ -650,6 +652,7 @@ contains
                !Y0 = Y0 + (temp/TN)**isochoric * ltntrna / lambda1 * (T1/temp)**alpha0 * dt/tcool2 * fiso
                Y0f = Y0f + (temp)**isochoric * dt * fiso * dens / (kbgmh * temp)
                !Tnew = T1 * (1 - (isochoric-alpha0) * lambda1 / ltntrna * (TN/T1)**isochoric * (Y0 - Y(ii)) )**(1.0/(isochoric-alpha0))
+               !print *, T1, Y0f, lambda1, alpha0, 1 - (isochoric-alpha0) * lambda1 / T1**isochoric * Y0f
                Tnew = T1 * (1 - (isochoric-alpha0) * lambda1 / T1**isochoric * Y0f)**(1.0/(isochoric-alpha0))
                !if (alpha0 < 0) print *, temp, tcool, alpha0, ii, T1, 1./(isochoric-alpha0), 1 - (isochoric-alpha0) * fiso * dt/tcool
                !Tnew = temp * (1 - (isochoric-alpha0) * fiso * dt/tcool)**(1./(isochoric-alpha0))
