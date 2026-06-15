@@ -597,17 +597,16 @@ contains
                            if (CMZ_photoelectric) then
                               R1 = sqrt(X(i)**2+Y(j)**2)
                               if (R1 .lt. 400) then
-                                    fact_G1 = 0.01/0.00021 * exp(-dens(i,j,k)/1.775) / 10    !Following Moon+21 inside CMZ
+                                 fact_G1 = 1.0 + 0.01/0.00021 * exp(-dens(i,j,k)/1.775) / 10    !Following Moon+21 inside CMZ
                               else
-                                 fact_G1 = 10.0**(144.0/5 * 10.0**4 / R1**2 - 9.0/5)         ! Transition between CMZ and solar neighborhood
+                                 fact_G1 = 10.0**(144.0/5 * 10.0**4 / R1**2 - 9.0/5)
                               endif
-                              if ((abs(Z(k)) .lt. 50) .and. (abs(Z(k)) .gt. 30))  then       ! Transition to halo
-                                 fact_G1 = fact_G1 * (-0.045 * abs(Z(k)) + 2.35)
-                              else if (abs(Z(k)) .gt. 50) then                               ! Halo
+                              if ((abs(Z(k)) .lt. 90) .and. (abs(Z(k)) .gt. 110))  then
+                                 fact_G1 = fact_G1 * (-0.045 * abs(Z(k)) + 5.05)
+                              else if (abs(Z(k)) .gt. 110) then
                                  fact_G1 = 0.1
                               endif
                               fact_G1 = max(fact_G1, 0.1)
-
                               if (ta(i,j,k) .gt. 15000.0) then
                                  fact_G1 = 0.0
                               endif
