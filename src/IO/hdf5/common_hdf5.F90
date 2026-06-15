@@ -104,28 +104,29 @@ contains
 
    subroutine init_hdf5(vars)
 
-      use constants,      only: dsetnamelen, singlechar, RIEMANN_UNSPLIT
-      use fluidindex,     only: flind
-      use dataio_pub,     only: warn, die
-      use fluids_pub,     only: has_ion, has_dst, has_neu
-      use global,         only: cc_mag, which_solver
-      use mpisetup,       only: master
+      use constants,        only: dsetnamelen, singlechar, RIEMANN_UNSPLIT
+      use fluidindex,       only: flind
+      use dataio_pub,       only: warn, die
+      use fluids_pub,       only: has_ion, has_dst, has_neu
+      use global,           only: cc_mag, which_solver
+      use mpisetup,         only: master
+      use named_array_list, only: wna
 #ifdef COSM_RAYS
-      use cr_data,        only: cr_names, cr_spectral
+      use cr_data,          only: cr_names, cr_spectral
 #endif /* COSM_RAYS */
 #ifdef CRESP
-      use initcosmicrays, only: ncrb
+      use initcosmicrays,   only: ncrb
 #endif /* CRESP */
 
       implicit none
 
       character(len=dsetnamelen), dimension(:), intent(in) :: vars  !< quantities to be plotted, see dataio::vars
 
-      integer                                              :: i
-      character(len=singlechar)                            :: fc, ord
-      character(len=dsetnamelen)                           :: aux, ifmt
+      integer                    :: i, k
+      character(len=singlechar)  :: fc, ord
+      character(len=dsetnamelen) :: aux, ifmt
 #ifdef COSM_RAYS
-      integer                                              :: k, ke
+      integer                    :: ke
 #endif /* COSM_RAYS */
 
       i = 10  ! Let the default counter be 2-digit wide
@@ -268,6 +269,10 @@ contains
                   call append_var('zfmomzi')
                   if (flind%ion%has_energy) call append_var('zfenei')
                endif
+            case ('trcr')
+               do k = flind%trc%beg, flind%trc%end
+                  call append_var(wna%get_component_name(wna%fi, int(k, kind=4)))
+               enddo
 #ifdef COSM_RAYS
             case ('encr')
                do k = 1, size(cr_names)

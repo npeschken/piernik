@@ -155,7 +155,10 @@ contains
          case ("gpot", "sgpt")
             f%fu = "\rm{cm}^2 / \rm{s}^2"
             f%f2cgs = 1.0 / (cm**2 / sek**2)
-         case ("trcr")
+         case default
+            if (var(1:7) == "tracer_") then
+               f%fu = ""
+            endif
       end select
    end function datafields_descr
 
@@ -351,6 +354,7 @@ contains
       use fluidtypes,       only: component_fluid
       use func,             only: ekin, emag, sq_sum3
       use grid_cont,        only: grid_container
+      use inittracer,       only: iarr_trc, ntracers
       use mpisetup,         only: proc
 #ifdef MAGNETIC
       use constants,        only: xdim, ydim, zdim, half, two, I_TWO, I_FOUR, I_SIX, I_EIGHT
@@ -380,9 +384,9 @@ contains
       class(component_fluid), pointer                :: fl_dni, fl_mach
       integer(kind=4)                                :: i_xyz
       integer                                        :: ii, jj, kk
+      integer                                        :: i
 #ifdef COSM_RAYS
       integer(kind=4)                                :: clast
-      integer                                        :: i
       integer, parameter                             :: auxlen = dsetnamelen - 1
       character(len=auxlen)                          :: aux
       character(len=I_TWO)                           :: varn2
@@ -493,11 +497,6 @@ contains
             read(var,'(A4,I2.2)') aux, i !> \deprecated BEWARE 0 <= i <= 99, no other indices can be dumped to hdf file
             tab(:,:,:) = cg%w(wna%ind(dfpq%q_nam))%arr(i,RNG)  !flind%cre%fbeg+i-1, RNG)
 #endif /* CRESP */
-#ifdef TRACER
-         case ("trcr01" : "trcr10")
-            read(var,'(A4,I2.2)') aux, i !> \deprecated BEWARE 0 <= i <= 99, no other indices can be dumped to hdf file
-            tab(:,:,:) = cg%u(flind%trc%beg+i-1, RNG)
-#endif /* TRACER */
          case ("dend", "deni", "denn")
             if (associated(fl_dni)) tab(:,:,:) = cg%u(fl_dni%idn, RNG)
          case ("vlxd", "vlxn", "vlxi", "vlyd", "vlyn", "vlyi", "vlzd", "vlzn", "vlzi")
@@ -685,7 +684,16 @@ contains
          case ("proc")
             tab(:,:,:) = proc
          case default
-            ierrh = -1
+            if (var(1:7) == "tracer_") then
+               read(var(8:), *, iostat=ierrh) i
+               if (ierrh == 0 .and. i > 0 .and. i <= ntracers) then
+                  tab(:,:,:) = cg%u(iarr_trc(i), RNG)
+               else
+                  ierrh = -1
+               endif
+            else
+               ierrh = -1
+            endif
       end select
       end associate
 

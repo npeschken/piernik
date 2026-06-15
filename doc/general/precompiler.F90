@@ -22,8 +22,6 @@
 !! \b \#define \b "COSM_RAYS" - to include parts of the code related to cosmic ray component
 !!
 !! \b \#define \b "COSM_RAYS_SOURCES" - to take into account several different species of cosmic rays particles
-!!
-!! \b \#define \b "TRACER" - to include parts of the code related to tracer
 !! @n @n
 !!
 !! \b PHYSICS \b INCLUDED \b (i.e. \b FIELDS, \b INTERACTIONS):

@@ -62,6 +62,7 @@ module fluidtypes
       integer(kind=4) :: beg = 0   !< beginning number of variables in fluid/component
       integer(kind=4) :: end = 0   !< end number of variables in fluid/component
       integer(kind=4) :: pos = 0   !< index denoting position of the fluid in the row of fluids
+      ! 'pos' seems to be only auxiliary, consider removing it.
 #ifdef CRESP
       integer(kind=4) :: nbeg = 0  !< beginning number of number density components for fluid/component (cre) !!!
       integer(kind=4) :: ebeg = 0  !< beginning number of energy density components for fluid/component (cre) !!!
@@ -120,6 +121,7 @@ module fluidtypes
       integer(kind=4) :: fluids      = 0      !< number of fluids (ionized gas, neutral gas, dust)
       integer(kind=4) :: energ       = 0      !< number of non-isothermal fluids (indicating the presence of energy density in the vector of conservative variables)
       integer(kind=4) :: components  = 0      !< number of components, such as CRs, tracers, magnetic helicity (in future), whose formal description does not involve [???]
+      ! 'components' seems to be only auxiliary, consider removing it.
       integer(kind=4) :: fluids_sg   = 0      !< number of selfgravitating fluids (ionized gas, neutral gas, dust)
 
       type(fluid_arr), dimension(:), pointer :: all_fluids

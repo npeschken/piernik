@@ -7,7 +7,6 @@
 #define IONIZED
 /* NEUTRAL is mutually exclusive with IONIZED at this point */
 #undef NEUTRAL
-#define TRACER
 
 /* Big features */
 #define MAGNETIC

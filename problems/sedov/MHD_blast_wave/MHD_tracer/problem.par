@@ -50,7 +50,8 @@
     dt_res  = 1e-1
     dt_log  = 1.0e-4
     dt_tsl  = 1.0e-4
-    vars(1:) = 'ener', 'dens', 'ethr', 'magB', "pres", "divb", "divb4", "psi", "level", "ref_01", "trcr"
+    vars(1:) = 'ener', 'dens', 'ethr', 'magB', "pres", "divb", "divb4", "psi", "level", "ref_01", "trcr", "ref_02"
+    verbosity = "verbose"
  /
 
  $FLUID_IONIZED
@@ -93,12 +94,14 @@
  /
 
  $FLUID_TRACER
-    tracers = 1
+    ntracers = 10
+!    trace_fluid = 0, 2
  /
 
  $AMR
     bsize = 3*32
     level_max = 4
     n_updAMR = 3
-    refine_vars(1) = "tracer_01", "threshold", 0.25, 4
+    refine_vars(1) = "tracer_01", "threshold", 0.25, 40, .true.
+    ! fluid name, method, threshold value, level max, create plotfield
  /

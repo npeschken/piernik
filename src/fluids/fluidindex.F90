@@ -52,7 +52,7 @@ module fluidindex
    private :: ndims, var_numbers ! QA_WARN: prevent reexporting
    public ! QA_WARN no secrets are kept here
 
-   type(var_numbers),save :: flind     !< COMMENT ME
+   type(var_numbers), save :: flind     !< COMMENT ME
 
    integer(kind=4), parameter  :: nmag = ndims     !< number of magnetic field components
 
@@ -119,12 +119,10 @@ contains
       use initdust,       only: dust_fluid
       use initionized,    only: ion_fluid
       use initneutral,    only: neutral_fluid
+      use inittracer,     only: tracer_index, iarr_trc
 #ifdef COSM_RAYS
       use initcosmicrays, only: iarr_crn, iarr_cre, iarr_crs, cosmicray_index
 #endif /* COSM_RAYS */
-#ifdef TRACER
-      use inittracer,     only: tracer_index, iarr_trc
-#endif /* TRACER */
 
       implicit none
 
@@ -155,9 +153,7 @@ contains
       call cosmicray_index(flind)
 #endif /* !COSM_RAYS */
 
-#ifdef TRACER
       call tracer_index(flind)
-#endif /* TRACER */
 
 ! Allocate index arrays
       allocate(iarr_mag_swp(ndims,nmag),iarr_all_mag(nmag))
@@ -180,11 +176,7 @@ contains
       allocate(iarr_all_crs(0))
 #endif /* !COSM_RAYS */
 
-#ifdef TRACER
       allocate(iarr_all_trc(flind%trc%all))
-#else /* !TRACER */
-      allocate(iarr_all_trc(0))
-#endif /* !TRACER */
 
       ! Compute index arrays for magnetic field
       iarr_mag_swp(xdim,:) = [xdim,ydim,zdim]
@@ -212,13 +204,11 @@ contains
       iarr_all_crs(1:flind%crs%all) = iarr_crs
 #endif /* COSM_RAYS */
 
-#ifdef TRACER
       iarr_all_swp(xdim,flind%trc%beg:flind%trc%end) = iarr_trc
       iarr_all_swp(ydim,flind%trc%beg:flind%trc%end) = iarr_trc
       iarr_all_swp(zdim,flind%trc%beg:flind%trc%end) = iarr_trc
 
       iarr_all_trc(1:flind%trc%all) = iarr_trc
-#endif /* TRACER */
 
       allocate(flind%all_fluids(flind%fluids))
 

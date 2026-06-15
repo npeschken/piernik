@@ -466,25 +466,20 @@ contains
 !-----------------------------------------------------------------------------------------------------------------------
    subroutine kepler_problem_post_restart
 
+      use all_boundaries,   only: all_fluid_boundaries
       use cg_leaves,        only: leaves
       use cg_list,          only: cg_list_element
-      use constants,        only: fluid_n
-      use all_boundaries,   only: all_fluid_boundaries
-      use named_array_list, only: wna
-      use grid_cont,        only: grid_container
-#ifdef TRACER
-      use constants,        only: xdim, ydim, zdim
+      use constants,        only: fluid_n, xdim, ydim, zdim, LO, HI
       use func,             only: resample_gauss
       use fluidindex,       only: flind
-#endif /* TRACER */
+      use grid_cont,        only: grid_container
+      use named_array_list, only: wna
 
       implicit none
 
       type(cg_list_element), pointer :: cgl
       type(grid_container),  pointer :: cg
-#ifdef TRACER
       integer                        :: i, j, k
-#endif /* TRACER */
 
       call my_grav_pot_3d   ! reset gp, to get right values on the boundaries
 
@@ -507,7 +502,6 @@ contains
          cgl => cgl%nxt
       enddo
 
-#ifdef TRACER
       if (gauss(4) > 0.0) then
          cgl => leaves%first
          do while (associated(cgl))
@@ -530,7 +524,6 @@ contains
       endif
 
       call all_fluid_boundaries
-#endif /* TRACER */
 
    end subroutine kepler_problem_post_restart
 !-----------------------------------------------------------------------------------------------------------------------

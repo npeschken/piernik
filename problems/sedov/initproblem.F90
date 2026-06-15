@@ -186,11 +186,12 @@ contains
       use fluidindex,   only: flind
       use func,         only: operator(.notequals.)
       use grid_cont,    only: grid_container
+      use inittracer,   only: iarr_trc, trace_fluid, ntracers
 
       implicit none
 
       integer, parameter              :: isub = 4
-      integer                         :: i, j, k, p, ii, jj, kk
+      integer                         :: i, j, k, p, ii, jj, kk, t
       type(cg_list_element),  pointer :: cgl
       type(grid_container),   pointer :: cg
       real :: x, y, z, s
@@ -218,9 +219,9 @@ contains
                      cg%u(fl%imz,i,j,k) = 0.0
                      cg%u(fl%ien,i,j,k) = p0/(fl%gam_1)
                      cg%u(fl%ien,i,j,k) = cg%u(fl%ien,i,j,k) + 0.5*(cg%u(fl%imx,i,j,k)**2 +cg%u(fl%imy,i,j,k)**2 + cg%u(fl%imz,i,j,k)**2)/cg%u(fl%idn,i,j,k)
-#ifdef TRACER
-                     cg%u(flind%trc%beg, i, j, k) = 0.  ! this will be unnecessarily repeated when multiple fluid kinds are enabled
-#endif /* TRACER */
+                     do t = 1, ntracers
+                        if (trace_fluid(t) == p) cg%u(iarr_trc(t), i, j, k) = 0.
+                     enddo
                   enddo
                enddo
             enddo
@@ -254,10 +255,9 @@ contains
                               enddo
                            enddo
                         enddo
-#ifdef TRACER
-                        ! this will be unnecessarily repeated when multiple fluid kinds are enabled
-                        cg%u(flind%trc%beg, i, j, k) = max(0., min(1., (cg%u(fl%ien,i,j,k) - p0/(fl%gam_1)) / Eexpl))
-#endif /* TRACER */
+                        do t = 1, ntracers
+                           if (trace_fluid(t) == p) cg%u(iarr_trc(t), i, j, k) = max(0., min(1., (cg%u(fl%ien,i,j,k) - p0/(fl%gam_1)) / Eexpl)) * t
+                        enddo
                      endif
                   enddo
                enddo
