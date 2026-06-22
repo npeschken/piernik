@@ -56,7 +56,8 @@ module thermal
    real                            :: TN, ltntrna
    real, dimension(:), allocatable :: Tref, alpha, lambda0, Y, dens_tab
    real, dimension(:,:), allocatable :: Tref_tab, alpha_tab, lambda0_tab
-   integer                         :: nfuncs, neql, ndens_tab
+   integer                         :: nfuncs, neql
+   integer(kind=4)                 :: ndens_tab
    integer, dimension(:), allocatable :: nfuncs_tab, neql_tab
 
 contains
@@ -225,7 +226,6 @@ contains
    subroutine fit_cooling_curve(dens)
 
       use dataio_pub,  only: msg, warn, die, printinfo
-      use func,        only: operator(.equals.)
       use mpisetup,    only: master
       use units,       only: cm, erg, sek, mH
 
@@ -326,9 +326,9 @@ contains
    subroutine fit_proc(nbins, logT, lambda)
 
       use constants,  only: big
-      use dataio_pub, only: msg, printinfo
+!      use dataio_pub, only: msg, printinfo
       use func,       only: operator(.equals.)
-      use mpisetup,   only: master
+!      use mpisetup,   only: master
 
       implicit none
 
@@ -342,12 +342,12 @@ contains
 
       rlim = 10.0**(-6)
 
-      logTeql = -1.0 * huge(1)
+      logTeql = -1.0 * huge(1.)
       do i = 1, neql
          if (Teql(i) .gt. 0.0) then
             logTeql(i) = log10(Teql(i))
          else
-            logTeql(i) = -1.0 * huge(1)
+            logTeql(i) = -1.0 * huge(1.)
          endif
       enddo
 
@@ -475,13 +475,17 @@ contains
       implicit none
 
       real,                    intent(in) :: dt
-      real, dimension(:, :, :), pointer   :: ta, dens, ener, encr, magx, magy, magz
+      real, dimension(:, :, :), pointer   :: ta, dens, ener
       real, dimension(:,:,:), allocatable :: kinmag_ener
       real, dimension(:), pointer         :: X,Y,Z
       real                                :: dt_cool, t1, tcool, cfunc, hfunc, esrc, kbgmh, ikbgmh, Tnew, int_ener, fact_G1, R1, CR_heating
-      real                                :: vax, vay, vaz, gradpcrx, gradpcry, gradpcrz, va, maxva, maxcrheating
+      real                                :: maxva, maxcrheating
       integer                             :: ifl, i, j, k
       integer, dimension(3)               :: n
+#ifdef COSM_RAYS
+      real, dimension(:, :, :), pointer   :: encr, magx, magy, magz
+      real                                :: vax, vay, vaz, gradpcrx, gradpcry, gradpcrz, va
+#endif /* COSM_RAYS */
 
       type(cg_list_element),  pointer     :: cgl
       type(grid_container),   pointer     :: cg
@@ -582,9 +586,9 @@ contains
                case ('EE')
                   maxva = 0
                   maxcrheating=0
-                  do i = 5, n(xdim)-4
-                     do j = 5, n(ydim)-4
-                        do k = 5, n(zdim)-4
+                  do i = 2, n(xdim)-1          ! The bounds were wrong previously which lead to artifacts when nb = 4
+                     do j = 2, n(ydim)-1
+                        do k = 2, n(zdim)-1
                            int_ener = ener(i,j,k) - kinmag_ener(i,j,k)
                            !tcool    = kbgmh * ta(i,j,k) / (dens(i,j,k) * abs(L0_cool) * (ta(i,j,k)/Teq)**alpha_cool)
                            ta(i,j,k) = int_ener * ikbgmh / dens(i,j,k)
@@ -950,7 +954,7 @@ contains
       real, intent(in)  :: tcool, dt, fiso, temp, dens, kbgmh
       real, intent(out) :: Tnew
       real              :: lambda1, T1, alpha0, Y0f, tcool2, diff, Teql1, diff1, diff2, fact
-      integer           :: i, jj, ii, n
+      integer           :: jj, ii, n
 
       select case (cool_model)
 

@@ -29,11 +29,6 @@
 module initproblem
 
    use fluidtypes,  only: component_fluid
-   use iosupport,    only: init_iosupport
-#ifdef SNE_DISTR
-   use sndistr,        only: register_user_var_sndistr, init_supernovae
-#endif /* SNE_DISTR */
-
 
    implicit none
 
@@ -85,30 +80,38 @@ contains
 
 !-----------------------------------------------------------------------------
 
-      subroutine init_user_module
+   subroutine init_user_module
 
-        use iosupport,    only: init_iosupport
+      use iosupport,    only: init_iosupport
 
 #ifdef SNE_DISTR
-         use sndistr,        only: init_supernovae
-         call init_supernovae
+      use sndistr,        only: init_supernovae
 #endif /* SNE_DISTR */
-         call init_iosupport
 
-       end subroutine init_user_module
+      implicit none
+
+#ifdef SNE_DISTR
+      call init_supernovae
+#endif /* SNE_DISTR */
+      call init_iosupport
+
+   end subroutine init_user_module
 
  !-----------------------------------------------------------------------------
 
-       subroutine sn_init_supplement
-
-        use iosupport,    only: init_iosupport
+   subroutine sn_init_supplement
 
 #ifdef SNE_DISTR
-        use sndistr,        only: register_user_var_sndistr
-        call register_user_var_sndistr
+      use sndistr,        only: register_user_var_sndistr
 #endif /* SNE_DISTR */
 
-      end subroutine sn_init_supplement
+      implicit none
+
+#ifdef SNE_DISTR
+      call register_user_var_sndistr
+#endif /* SNE_DISTR */
+
+   end subroutine sn_init_supplement
 
 
    !-----------------------------------------------------------------------------
@@ -150,7 +153,8 @@ logical, intent(in) :: forward
       use dataio_pub,  only: msg, die, warn, nh
       use domain,      only: dom
       use fluidindex,  only: flind
-      use mpisetup,    only: rbuff, ibuff, master, slave, piernik_MPI_Bcast
+      use mpisetup,    only: rbuff, ibuff, master, slave
+      use bcast,       only: piernik_MPI_Bcast
       use problem_pub, only: jeans_d0, jeans_mode
 #ifdef NBODY
          use star_formation, only:init_SF
@@ -222,7 +226,7 @@ logical, intent(in) :: forward
       call die("You must define SELF_GRAV for this problem")
 #endif /* !SELF_GRAV */
 
-      if (mode < 0 .or. mode > 2)     call die("[initproblem:read_problem_par] Invalid mode.")     ! jrandpert
+      if (mode < 0 .or. mode > 3)     call die("[initproblem:read_problem_par] Invalid mode.")     ! jrandpert
       if (d0 < 0. .or. abs(amp) > 1.) call die("[initproblem:read_problem_par] Negative average density or amplitude too high.")
       if (p0 < 0.)                    call die("[initproblem:read_problem_par] Negative average pressure.")
       if (ix<0 .or. iy<0 .or. iz<0 .or. amp<0) then
@@ -293,18 +297,14 @@ logical, intent(in) :: forward
       use star_formation, only: initialize_id
 #endif /* NBODY */
 
-      use thermal,     only: itemp, thermal_active
-
-
-
       implicit none
 
       class(component_fluid), pointer :: fl
       integer                         :: i, j, k
-      real                            :: xi, yj, zk, pres
+      real                            :: xi, yj, zk, pres, fac
       type(cg_list_element),  pointer :: cgl
       type(grid_container),   pointer :: cg
-      integer                         :: seed   ! jrandpert
+      integer(kind=4)                 :: seed   ! jrandpert
 
       seed = proc                               ! jrandpert
       call srand(seed)                          ! jrandpert
@@ -326,19 +326,18 @@ logical, intent(in) :: forward
                   xi = cg%x(i)-dom%edge(xdim, LO)
                   select case (mode)
                      case (0)
-                        cg%u(fl%idn,i,j,k)  = d0 * (1. +          amp * sin(kx*xi + ky*yj + kz*zk))
-                        pres                = p0 * (1. + fl%gam * amp * sin(kx*xi + ky*yj + kz*zk))
+                        fac = (1. + amp * sin(kx*xi + ky*yj + kz*zk))
                      case (1)
-                        cg%u(fl%idn,i,j,k)  = d0 * (1. +          amp * sin(kx*xi) * sin(ky*yj) * sin(kz*zk))
-                        pres                = p0 * (1. + fl%gam * amp * sin(kx*xi) * sin(ky*yj) * sin(kz*zk))
+                        fac = (1. + amp * sin(kx*xi) * sin(ky*yj) * sin(kz*zk))
                      case (2)
-                        cg%u(fl%idn,i,j,k)  = d0 * (1. +          amp * (1. - 2.*rand()))
-                        pres                = p0 * (1. + fl%gam * amp * (1. - 2.*rand()))
+                        fac = (1. + amp * (1. - 2.*rand()))
+                     case (3)
+                        fac = (1. + amp * ( - cos(kx*xi) * cos(ky*yj) * cos(kz*zk) + (1. - 2.*rand()) ))
                      case default ! should not happen
-                        cg%u(fl%idn,i,j,k)  = d0
-                        pres                = p0
+                        fac = 1.
                   end select
-
+                  cg%u(fl%idn,i,j,k)  = d0 *          fac
+                  pres                = p0 * fl%gam * fac
                   cg%u(fl%imx:fl%imz,i,j,k) = 0.0
 #ifndef ISO
                   cg%u(fl%ien,i,j,k)        = pres/fl%gam_1 + ekin(cg%u(fl%imx,i,j,k), cg%u(fl%imy,i,j,k), cg%u(fl%imz,i,j,k), cg%u(fl%idn,i,j,k))

@@ -1,4 +1,3 @@
-! $Id: iosupport.F90 7934 2013-06-11 07:59:50Z wolt $
 !
 ! PIERNIK Code Copyright (C) 2006 Michal Hanasz
 !
@@ -35,7 +34,7 @@ module iosupport
    public :: galdisk_vars_hdf5, galdisk_tsl, read_initial_fld_from_restart, write_global_to_restart, galdisk_attrs_pre, galdisk_post_write_data
    public :: init_iosupport, galdisk_redostep
    real   :: emir, emor, emoh !< emag inner radius, outer radius, outer height
-   integer :: zflx_layer      !< index of cells layer to count mass flux through z boundaries
+   integer(kind=4) :: zflx_layer  !< index of cells layer to count mass flux through z boundaries
    logical :: t_mcmp, t_mcmp_tot, t_ovlp, t_ovlp_tot, t_emag, t_emag_tot, t_encr, t_encr_tot, t_dmass_stars, t_dmass_stars_tot,&
               t_SNI, t_SNI_tot, t_SNII, t_SNII_tot, t_emag_disk, t_emag_diskonly, t_mflx4, t_mflx_disk, t_massflxz, t_massflxz_tot, t_massflxz_lh, t_massflxz_lh_tot
 #ifdef SN_DISTRIBUTION
@@ -69,7 +68,8 @@ contains
    subroutine init_iosupport
 
       use dataio_pub, only: nh ! QA_WARN required for diff_nml
-      use mpisetup,   only: ibuff, lbuff, rbuff, master, slave, piernik_MPI_Bcast
+      use mpisetup,   only: ibuff, lbuff, rbuff, master, slave
+      use bcast,      only: piernik_MPI_Bcast
       use units,      only: kpc
 
       implicit none
@@ -357,8 +357,8 @@ contains
       character(len=*), dimension(:), intent(inout), allocatable, optional :: tsl_names
       real, dimension(2)                                                   :: massflxz
 #ifdef MAGNETIC
-      real, dimension(5)                                                   :: mflx5
-      real                                                                 :: emag_disk
+!      real, dimension(5)                                                   :: mflx5
+!      real                                                                 :: emag_disk
 #endif /* MAGNETIC */
 
       if (present(tsl_names)) then
@@ -447,7 +447,7 @@ contains
 
       use constants,   only: pSUM
       use diagnostics, only: pop_vector
-      use mpisetup,    only: piernik_MPI_Allreduce
+      use allreduce,       only: piernik_MPI_Allreduce
 
       implicit none
 
@@ -471,7 +471,7 @@ contains
       use fluidindex,       only: iarr_all_mz
       use global,           only: dt, t
       use grid_cont,        only: grid_container
-      use mpisetup,         only: piernik_MPI_Allreduce
+      use allreduce,            only: piernik_MPI_Allreduce
       use named_array_list, only: wna
       implicit none
 
@@ -514,7 +514,7 @@ contains
 
 #ifdef SNE_DISTR
       use constants, only: pSUM
-      use mpisetup,  only: piernik_MPI_Allreduce
+      use allreduce,     only: piernik_MPI_Allreduce
       use sndistr,   only: sum_emagadd, sum_encradd
 #endif /* SNE_DISTR */
 #ifdef SN_DISTRIBUTION
