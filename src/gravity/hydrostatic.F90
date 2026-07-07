@@ -42,7 +42,7 @@ module hydrostatic
 
    private
 
-   public :: set_default_hsparams, hydrostatic_zeq_coldens, hydrostatic_zeq_densmid, cleanup_hydrostatic, outh_bnd, init_hydrostatic
+   public :: set_default_hsparams, hydrostatic_zeq_coldens, hydrostatic_zeq_densmid, cleanup_hydrostatic, outh_bnd, init_hydrostatic, hydro_zeq_densmid_amr, hydro_zeq_coldens_amr
 
 #ifdef THERM
    public:: thermal_hydro_zeq_Tmid, Tprof, i_teq
@@ -140,7 +140,31 @@ contains
       call hydrostatic_zeq_densmid(iia, jja, sdprof, csim2, sd)
       dprof(:) = dprof(:) * coldens / sd
 
-   end subroutine hydrostatic_zeq_coldens
+    end subroutine hydrostatic_zeq_coldens
+
+    subroutine hydro_zeq_coldens_amr(iia, jja, coldens, csim2)
+
+      use constants,  only: LO, HI, zdim
+
+      implicit none
+
+      integer, intent(in)    :: iia, jja
+      real,    intent(in)    :: coldens, csim2
+      real                   :: sdprof, sd
+
+      sdprof = 1.0
+      call hydro_zeq_densmid_amr(iia, jja, sdprof, csim2, sd)
+      if (hscg%z(hscg%lh1(zdim, LO)) * hscg%z(hscg%lh1(zdim, HI)) .lt. 0.0) then
+         !if (hscg%z(hscg%lh1(zdim, LO))
+         dprof(:) = dprof(:) * coldens / sd
+       !  if ((abs(hscg%x(iia)) .lt. 1000) .and. (abs(hscg%y(jja)) .lt. 1000)) then
+       !     print *
+       !     print *, hscg%x(iia), hscg%y(jja), coldens, sd
+       !     print*
+       !  endif
+      endif
+
+   end subroutine hydro_zeq_coldens_amr
 
 !>
 !! \brief Routine that establishes hydrostatic equilibrium for fixed plane density value
@@ -189,6 +213,58 @@ contains
       if (allocated(dprofs)) deallocate(dprofs)
 
    end subroutine hydrostatic_zeq_densmid
+
+   subroutine hydro_zeq_densmid_amr(iia, jja, d0, csim2, sd)
+
+      use constants,  only: half, small, two, LO, HI, zdim
+      use dataio_pub, only: die
+      use gravity,    only: get_gprofs
+
+      implicit none
+
+      integer,        intent(in)  :: iia, jja
+      real,           intent(in)  :: d0, csim2
+      integer                     :: ksub
+      real, optional, intent(out) :: sd
+
+      if (d0 <= small) call die("[hydrostatic:hydro_zeq_densmid_amr] d0 must be /= 0")
+      dmid = d0
+
+      allocate(zs(nstot))
+
+      do ksub = 1, nstot
+         zs(ksub) = hsmin + (real(ksub)-half) * dzs
+      enddo
+      ksmin = 1
+      do ksub = 1, nstot
+         if (zs(ksub) .ge. hscg%z(hscg%lhn(zdim, LO)) - dz/2) then
+            ksmin = ksub
+            exit
+         endif
+      enddo
+      ksmax = nstot
+      do ksub = 1, nstot
+         if (zs(ksub) .ge. hscg%z(hscg%lhn(zdim, HI)) + dz/2) then
+            ksmax = ksub - 1
+            exit
+         endif
+      enddo
+      allocate(gprofs(ksmin:ksmax), dprofs(ksmin:ksmax))
+      call get_gprofs(iia, jja)
+      gprofs(:) = gprofs(:) / csim2 * dzs
+
+      if (any(abs(gprofs) >= two)) then
+         unresolved = .true.
+         urslvd = max(urslvd, maxval(abs(gprofs))/two)
+      endif
+
+      call hydro_main_amr(iia,jja, sd)
+
+      if (allocated(zs))     deallocate(zs)
+      if (allocated(gprofs)) deallocate(gprofs)
+      if (allocated(dprofs)) deallocate(dprofs)
+
+    end subroutine hydro_zeq_densmid_amr
 
    !>
 !! \brief Routine that establishes hydrostatic + thermal equilibrium for a given midplane Temperature T0
@@ -271,7 +347,7 @@ contains
       mindz = cg%dl(zdim)
 
       dzs   = dom%L_(zdim)/(finest%level%l%n_d(zdim) * nsub)
-      nstot = nsub * int(finest%level%l%n_d(zdim) + 2*dom%nb*mindz/dzs, kind=4)
+      nstot = nsub * int(finest%level%l%n_d(zdim) + 2*dom%nb*mindz/dzs/nsub, kind=4)
       rnsub = nint(cg%dl(zdim) / dzs)
       hsmin = dom%edge(zdim, LO) - dom%nb * mindz
       hsbn  = cg%lhn(zdim,:)
@@ -355,6 +431,130 @@ contains
       endif
 
     end subroutine hydrostatic_main
+
+   subroutine hydro_main_amr(iia, jja, sd)
+
+
+      use constants,  only: LO, HI, zdim
+      use dataio_pub, only: die
+      use domain,     only: dom
+      use global,     only: smalld
+      use mpisetup,   only: proc
+!      use thermal,    only: find_temp_bin, alpha, Tref, lambda0, G1_heat, G0_heat
+      use units,      only: mH
+
+      implicit none
+
+      integer, intent(in)         :: iia, jja
+      integer                     :: ksub, ksmid, k, ii, i, iip, kstart
+      logical                     :: up, down, bnd_done
+
+      real, optional, intent(out) :: sd
+
+#ifdef HYDROSTATIC_V2
+      hzeq_scheme => hzeq_scheme_v2
+#else /* !HYDROSTATIC_V2 */
+      hzeq_scheme => hzeq_scheme_v1
+#endif /* !HYDROSTATIC_V2 */
+
+      up = .false.
+      down = .false.
+      bnd_done = .false.
+      kstart = 1
+      dprofs = 0.0
+      if (hscg%z(hscg%lh1(zdim, LO)) * hscg%z(hscg%lh1(zdim, HI)) .lt. 0.0) then
+         ksmid = 0
+         ksmid = minloc(abs(zs(ksmin:ksmax)),1) + ksmin -1
+         if (ksmid == 0) call die("[hydrostatic:hydro_main_amr] ksmid not set")
+
+      !   if ((ksmid .lt. ksmin) .or. (ksmid .gt. ksmax)) print *, ksmin, ksmax, ksmid, zs(ksmin), zs(ksmax), zs(ksmid), minloc(abs(zs(ksmin:ksmax)),1)
+
+         dprofs(ksmid) = dmid
+         if ((ksmid .ne. ksmin) .and. (ksmid .ne. ksmax)) then
+            dprofs(ksmid+1) = dmid
+         endif
+         up = .true.
+         down = .true.
+         kstart = ksmid
+      else
+         if (hscg%z(hscg%ijkse(zdim, LO)) .gt. 0.0) then
+            up = .true.
+            kstart = ksmin - 1
+            if (hscg%q(i_teq)%arr(iia, jja, hscg%lh1(zdim, LO)) .eq. 0.0) then
+               dprof = 0.0000001
+               !print *, 'T=0', proc, hscg%grid_id, hscg%x(iia), hscg%y(jja), hscg%z(hscg%lh1(zdim, HI))
+               return
+            endif
+            dprofs(ksmin) = hscg%q(i_teq)%arr(iia, jja, hscg%lh1(zdim, LO))
+
+         else
+            down = .true.
+            kstart = ksmax
+            if (hscg%q(i_teq)%arr(iia, jja, hscg%lh1(zdim, HI)) .eq. 0.0) then
+               dprof = 0.0000001
+               print *, 'D=0', proc, hscg%grid_id, hscg%x(iia), hscg%y(jja), hscg%z(hscg%lh1(zdim, HI))
+               return
+            endif
+            dprofs(ksmax) = hscg%q(i_teq)%arr(iia, jja, hscg%lh1(zdim, HI))
+         endif
+      endif
+
+      if (up) then
+         if (kstart < nstot) then
+            do ksub = kstart+1, ksmax-1
+               if ((ksub+1 .lt. ksmin) .or. (ksub+1 .gt. ksmax)) print *, 'Out of bounds: up', ksmin, ksmax, ksub+1
+               dprofs(ksub+1) = dprofs(ksub) * hzeq_scheme(ksub, 1.0)
+               if ((abs(hscg%x(iia)-20000) .lt. 200) .and. (abs(hscg%y(jja)) .lt. 200) .and. (zs(ksub) .lt. 1500)) print *, hscg%x(iia), hscg%y(jja), zs(ksub), dprofs(ksub),  hzeq_scheme(ksub, 1.0), gprofs(ksub)
+
+               if (dprofs(ksub+1) .gt. 1.0e10) then
+                  !print *, hscg%x(iia), hscg%y(jja),  zs(ksub+1), Tprofs(ksub+1), Tzeq_scheme(ksub, 1.0, ii, zlim), gprofs(ksub)
+                  call die('[hydrostatic:hydro_main_amr] dprofs values problem (in up)')
+               endif
+            enddo
+         endif
+      endif
+
+      if (down) then
+         if (kstart > 1) then
+            do ksub = kstart, ksmin+1, -1
+               if ((ksub-1 .lt. ksmin) .or. (ksub-1 .gt. ksmax)) print *, 'Out of bounds: down', ksmin, ksmax, ksub+1
+               dprofs(ksub-1) = dprofs(ksub) * hzeq_scheme(ksub, -1.0)
+               !print *, ksub, dprofs(ksub), hzeq_scheme(ksub,-1.0)
+               if (dprofs(ksub-1) .gt. 1.0e10) then
+                  call die('[hydrostatic:hydro_main_amr] dprofs values problem (in down)')
+               endif
+            enddo
+         endif
+      endif
+
+      dprof(:) = 0.0
+      do k = hsbn(LO), hsbn(HI)
+         do ksub = ksmin, ksmax
+            if (zs(ksub) > hsl(k) .and. zs(ksub) < hsl(k+1)) then
+               dprof(k) = dprof(k) + dprofs(ksub)/real(rnsub)
+               !if ((abs(hscg%x(iia)-20000) .lt. 1000) .and. (abs(hscg%y(jja)) .lt. 1000) .and. (abs(hscg%z(k)) .lt. 3000)) print *, hscg%x(iia), hscg%y(jja), hscg%z(k), zs(ksub), dprofs(ksub), real(rnsub), dprof(k), dmid
+               !print *, k, dprof(k), dprofs(ksub)
+            endif
+         enddo
+         if (dprof(k) .lt. smalld) dprof(k) = smalld
+         if ((dprof(k) .gt. 1.0e10) .or. (dprof(k) .eq. 0.0)) then
+            print *, hscg%x(iia), hscg%y(jja), hscg%z(k), dprof(k), zs(ksmin), zs(ksmax)
+            call die('[hydrostatic:hydro_main_amr] Problem with Density values')
+         endif
+      enddo
+      if ((sum(dprof) .eq. 0.0) .or. (.not. (any(dprof .gt. 0.0)))) call die('[hydrostatic:hydro_main_amr] dprof = 0')
+      hscg%q(i_teq)%arr(iia, jja, :) = 0.0
+      hscg%q(i_teq)%arr(iia, jja, :) = dprof
+
+      if (present(sd)) then
+         sd = 0.0
+         do ksub = ksmin, ksmax
+            if (zs(ksub) > dom%edge(zdim,LO) .and. zs(ksub) < dom%edge(zdim,HI)) sd = sd + dprofs(ksub)*dzs
+         enddo
+      endif
+
+    end subroutine hydro_main_amr
+
 
 !>
     !! \brief Routine that arranges thermal + hydrostatic equilibrium in the vertical (z) direction by setting the Temperatures and then the corresponding densities
@@ -609,6 +809,13 @@ contains
 
       gprofs(ksmin:ksmax) = (gpots(1,1,ksmin:ksmax) - gpots(1,1,ksmin+1:ksmax+1))/dzs
       gprofs(:) = tune_zeq*gprofs(:)
+
+ !     if ((abs(hscg%x(iia)-20000) .lt. 200) .and. (abs(hscg%y(jja)) .lt. 200) .and. (hscg%y(jja) .gt. 0)) then
+ !        print *, hscg%x(iia), hscg%y(jja)
+ !        print *, zs(nstot/2:nstot/2+10) 
+ !        print *, gpots(1,1,nstot/2:nstot/2+10)
+ !        print *, gprofs(nstot/2:nstot/2+10)
+ !     endif
 
       call ax%deallocate_axes
       if (associated(gpots)) deallocate(gpots)
