@@ -141,6 +141,12 @@ contains
 #ifdef NBODY
       use particle_timestep,  only: timestep_nbody
 #endif /* NBODY */
+#ifdef STREAM_CR
+      use timestepscr,        only: timestep_scr
+      use initstreamingcr,    only: dt_scr, nsub, nsub_scr, scr_negative
+      use constants,          only: I_ZERO, INVALID, I_ONE, I_TWO
+      use dataio_pub,         only: die
+#endif /* STREAM_CR */
 
       implicit none
 
@@ -184,6 +190,7 @@ contains
 #ifdef RESISTIVE
       call timestep_resist(dt)
 #endif /* RESISTIVE */
+
 
       call timestep_sources(dt)
       call timestep_fargo(dt)
@@ -234,6 +241,55 @@ contains
       call compare_array1D([dt])  ! just in case
       if (main_call) dt_full = dt
 
+#ifdef STREAM_CR
+
+      call timestep_scr(dt_scr)                          ! Calculate the timestep for streaming CR
+
+      select case (nsub)
+         case (INVALID)                                  ! sub-cycling disabled
+            dt = dt_scr
+            nsub_scr = I_ONE
+         case (I_ZERO)                                   ! Adaptive sub-cycling
+            if (dt < dt_scr) then
+               scr_negative = .true.
+               dt_scr = dt
+               nsub_scr = I_TWO
+            else
+               nsub_scr = max(I_ONE, ceiling(dt/dt_scr))
+               if (mod(nsub_scr, 2) /= 0) nsub_scr = nsub_scr + I_ONE
+               dt_scr = dt/nsub_scr
+            endif
+         case default                                   ! Fixed number of user provided sub-cycles
+            if (nsub < INVALID) then
+               if (master) then
+                  write(msg,'(A)') "[timestep:time_step] Invalid value for the parameter nsub. Must be one of -1, 0 or some positive integer"
+                  call die(msg)
+               endif
+            endif
+            if (mod(nsub, 2) /= 0) then
+               nsub = nsub + I_ONE
+               if (master) then
+                  write(msg,'(A,I0)') "[timestep:time_step] Odd subcycling nsub chosen. Adjusted to the nearest even number, nsub=", nsub
+                  call warn(msg)
+               endif
+            endif
+            nsub_scr = nsub
+            do
+               if (nsub_scr <= I_ZERO) then
+                  scr_negative = .true.
+                  exit
+               endif
+               if (dt >= nsub_scr * dt_scr) then
+                  dt = nsub_scr * dt_scr
+                  exit
+               else
+                  nsub_scr = nsub_scr - I_TWO
+               endif
+            enddo
+      end select
+
+#endif /* STREAM_CR */
+
       call ppp_main%stop(ts_label)
 
    end subroutine time_step
@@ -260,6 +316,9 @@ contains
 #ifdef CRESP
       use cresp_grid,     only: cfl_cresp_violation
 #endif /* CRESP */
+#ifdef STREAM_CR
+      use initstreamingcr,       only: scr_negative
+#endif /* STREAM_CR */
 
       implicit none
 
@@ -288,6 +347,14 @@ contains
       endif
       cr_negative  = .false.
 #endif /* COSM_RAYS */
+#ifdef STREAM_CR
+      call piernik_MPI_Allreduce(scr_negative, pLOR)
+      if (scr_negative) then
+         if (master) call warn('[timestep:check_cfl_violation] Possible violation of CFL: c_reduced not sufficient. Scaling c_reduced')
+         unwanted_negatives = .true.
+      endif
+      scr_negative  = .false.
+#endif /* STREAM_CR */
       if (dn_negative) then
          if (master) call warn('[timestep:check_cfl_violation] Possible violation of CFL: negative density')
          if (disallow_negatives) unwanted_negatives = .true.

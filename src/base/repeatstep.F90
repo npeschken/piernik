@@ -46,10 +46,11 @@ module repeatstep
    logical :: repeat = .false.     ! this flag marks whether a timestep has to be repeated or not
    logical :: need_sync = .false.  ! die if unsynchronized repeat is used anywhere
 
+   logical, parameter :: ultra_defensive = &
 #ifdef DEBUG
-   logical, parameter :: ultra_defensive = .true.   ! enforce unconditional global reduction or call die()
+        .true.   ! enforce unconditional global reduction or call die()
 #else /* !DEBUG */
-   logical, parameter :: ultra_defensive = .false.  ! allow the programmer to skip global reduction when it is known to be safe from some other sources
+        .false.  ! allow the programmer to skip global reduction when it is known to be safe from some other sources
 #endif /* DEBUG */
 
 contains

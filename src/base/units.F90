@@ -491,14 +491,13 @@ contains
 
    subroutine get_unit(field, val, s_val)
 
-      use constants, only: U_LEN, U_MASS, U_TIME, U_VEL, U_MAG, U_TEMP, units_len, I_TWO
+      use constants, only: U_LEN, U_MASS, U_TIME, U_VEL, U_MAG, U_TEMP, units_len
 
       implicit none
 
       character(len=*), intent(in) :: field
       real, intent(out) :: val
       character(len=units_len), intent(out):: s_val
-      integer(kind=4) :: en_ind
 
       select case (trim(field))
          case ("dend", "deni", "denn", "density")
@@ -527,21 +526,15 @@ contains
          case ("temn", "temi", "temperature")
             val =  1.0
             write(s_val, '(a)') trim(s_lmtvB(U_TEMP))
-         case ("magx", "magy", "magz", "mag_field_x", "mag_field_y", "mag_field_z")
+         case ("magx", "magy", "magz")
             val = lmtvB(U_MAG)
             write(s_val, '(a)') trim(s_lmtvB(U_MAG))
          case ("cr01" : "cr99", "cr_A000" : "cr_zz99", "cree01" : "cree99")
-            en_ind = len(trim(field), kind=4) - I_TWO
-            if (field(en_ind:en_ind) /= "n") then
-               val = lmtvB(U_MASS) / lmtvB(U_LEN) / lmtvB(U_TIME) ** 2
-               if (trim(s_lmtvB(U_ENER)) /= "complex") then
-                  write(s_val, '(a, "/", a,"**3")') trim(s_lmtvB(U_ENER)), trim(s_lmtvB(U_LEN))
-               else
-                  write(s_val, '(a, "/", a, " /",a,"**2")') trim(s_lmtvB(U_MASS)), trim(s_lmtvB(U_LEN)), trim(s_lmtvB(U_TIME))
-               endif
+            val = lmtvB(U_MASS) / lmtvB(U_LEN) / lmtvB(U_TIME) ** 2
+            if (trim(s_lmtvB(U_ENER)) /= "complex") then
+               write(s_val, '(a, "/", a,"**3")') trim(s_lmtvB(U_ENER)), trim(s_lmtvB(U_LEN))
             else
-               val = 1.0 / lmtvB(U_LEN)**3                          !< CRESP number density
-               write(s_val, '( "1  /", a,"**3")') trim(s_lmtvB(U_LEN))
+               write(s_val, '(a, "/", a, " /",a,"**2")') trim(s_lmtvB(U_MASS)), trim(s_lmtvB(U_LEN)), trim(s_lmtvB(U_TIME))
             endif
 #ifdef CRESP
          case ("cren01" : "cren99")
@@ -550,7 +543,7 @@ contains
 #endif /* CRESP */
          case ("gpot", "sgpt")
             val = lmtvB(U_VEL) ** 2
-            write(s_val, '("(",a,")**2")') trim(s_lmtvB(U_VEL))
+            write(s_val, '(a,"**2")') trim(s_lmtvB(U_VEL))
          case default
             val = 1.0
             s_val = "dimensionless"

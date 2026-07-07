@@ -153,6 +153,7 @@ contains
       use gravity,             only: source_terms_grav, compute_h_gpot, need_update
 #ifdef NBODY
       use particle_solvers,    only: psolver
+      use star_formation,      only: SF_step
 #endif /* NBODY */
 #endif /* GRAV */
 #ifdef COSM_RAYS
@@ -167,10 +168,15 @@ contains
       use shear,               only: shear_3sweeps
 #endif /* SHEAR */
 
+#ifdef STREAM_CR
+      use initstreamingcr,      only: nsub_scr
+      use unsplit_scr_sweep,    only: unsplit_scrsweep
+#endif /* STREAM_CR */
+
       implicit none
 
       logical, intent(in) :: forward  !< If .true. then do X->Y->Z sweeps, if .false. then reverse that order
-
+      integer :: i
       integer(kind=4) :: s, sFRST, sLAST, sCHNG
       character(len=*), parameter :: sw3_label = "sweeps"
 
@@ -198,6 +204,14 @@ contains
       endif
 #endif /* COSM_RAYS */
 
+#ifdef STREAM_CR
+      if (.not. forward) then
+         do i = 1, nsub_scr
+            call unsplit_scrsweep
+         end do
+      endif
+#endif /* STREAM_CR */
+
       ! At this point everything should be initialized after domain expansion and we no longer need this list.
       call expanded_domain%delete
 
@@ -222,10 +236,19 @@ contains
 #endif /* NBODY */
       if (need_update) call source_terms_grav
 #endif /* GRAV */
+#ifdef STREAM_CR
+      if (forward) then
+         do i = 1, nsub_scr
+            call unsplit_scrsweep
+         end do
+      endif
+#endif /* STREAM_CR */
 
       call external_sources(forward)
       if (associated(problem_customize_solution)) call problem_customize_solution(forward)
-
+#ifdef NBODY
+      call SF_step(forward)                                   
+#endif /* NBODY */
       call eglm
       call glmdamping
 
