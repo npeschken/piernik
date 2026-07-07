@@ -99,6 +99,13 @@ module dataio
 #ifdef VARIABLE_GP
       real :: gpxmax, gpymax, gpzmax
 #endif /* VARIABLE_GP */
+#ifdef STREAM_CR
+      real :: escr_min, escr_max
+      real :: fc_mag_min, fc_mag_max
+      real :: c_reduced, dt_scr, nsub
+      real :: fc_ovr_credescr
+#endif /* STREAM_CR */
+
    end type tsl_container
 
    namelist /END_CONTROL/     nend, tend, wend
@@ -519,14 +526,15 @@ contains
       use user_hooks,   only: user_vars_arr_in_restart
       use version,      only: nenv, env, init_version
 #ifdef HDF5
-      use common_hdf5,  only: init_hdf5
+      use common_hdf5,  only: init_hdf5, hdf_vars
       use data_hdf5,    only: init_data
       use dataio_pub,   only: gdf_strict, msg, nhdf, nstep_start
       use fluidindex,   only: flind
       use global,       only: t, nstep
       use restart_hdf5, only: read_restart_hdf5
 #ifdef NBODY
-      use particles_io, only: init_nbody_hdf5
+      use particles_io,   only: init_nbody_hdf5
+      use star_formation, only: register_SF_vars
 #endif /* NBODY */
 #endif /* HDF5 */
 
@@ -569,6 +577,7 @@ contains
       call init_hdf5(vars)
 #ifdef NBODY
       call init_nbody_hdf5(pvars)
+      call register_SF_vars(hdf_vars)
 #endif /* NBODY */
       call init_data
 #endif /* HDF5 */
@@ -999,6 +1008,7 @@ contains
 #endif /* MAGNETIC */
 #ifdef NBODY
       use particle_diag,    only: particle_diagnostics, tot_energy, d_energy, tot_angmom, d_angmom
+      use star_formation,   only: SF_tsl, SF_tsl_reduce               
 #endif /* NBODY */
 
       implicit none
@@ -1074,6 +1084,14 @@ contains
 #ifdef COSM_RAYS
             call pop_vector(tsl_names, field_len, ["encr_tot", "encr_min", "encr_max"])
 #endif /* COSM_RAYS */
+#ifdef STREAM_CR
+            call pop_vector(tsl_names, field_len, ["escr_min", "escr_max"])
+            call pop_vector(tsl_names, field_len, ["c_reduced"])
+            call pop_vector(tsl_names, field_len, ["fc_ovr_cescr_max"])
+            call pop_vector(tsl_names, field_len, ["nsub"])
+            call pop_vector(tsl_names, field_len, ["dt_scr"])
+            call pop_vector(tsl_names, field_len, ["fc_mag_max", "fc_mag_min"])
+#endif /* STREAM_CR */
 #ifdef CRESP
             call pop_vector(tsl_names, field_len, ["cren_tot", "cren_min", "cren_max" ])
             call pop_vector(tsl_names, field_len, ["cree_tot", "cree_min", "cree_max"])
@@ -1098,6 +1116,7 @@ contains
             endif
 #ifdef NBODY
             call pop_vector(tsl_names, field_len, ["totpener", "errpener", "totpamom", "errpamom"])
+            call SF_tsl(tsl_vars, tsl_names)
 #endif /* NBODY */
 
             if (associated(user_tsl)) call user_tsl(tsl_vars, tsl_names)
@@ -1218,6 +1237,7 @@ contains
 
 #ifdef NBODY
       call particle_diagnostics(.false.)
+      call SF_tsl_reduce  
 #endif /* NBODY */
 
       call write_log(tsl)
@@ -1239,7 +1259,14 @@ contains
 #ifdef COSM_RAYS
          call pop_vector(tsl_vars, [tot_q(T_ENCR), tsl%encr_min, tsl%encr_max])
 #endif /* COSM_RAYS */
-
+#ifdef STREAM_CR
+         call pop_vector(tsl_vars, [tsl%escr_min, tsl%escr_max])
+         call pop_vector(tsl_vars, [tsl%c_reduced])
+         call pop_vector(tsl_vars, [tsl%fc_ovr_credescr])
+         call pop_vector(tsl_vars, [tsl%nsub])
+         call pop_vector(tsl_vars, [tsl%dt_scr])
+         call pop_vector(tsl_vars, [tsl%fc_mag_max, tsl%fc_mag_min])
+#endif /* STREAM_CR */
 #ifdef CRESP
          call pop_vector(tsl_vars, [tot_q(T_CREN), tsl%cren_min, tsl%cren_max])
          call pop_vector(tsl_vars, [tot_q(T_CREE), tsl%cree_min, tsl%cree_max])
@@ -1255,6 +1282,7 @@ contains
          enddo
 #ifdef NBODY
          call pop_vector(tsl_vars, [tot_energy, d_energy, tot_angmom, d_angmom])
+         call SF_tsl(tsl_vars) 
 #endif /* NBODY */
 
       endif
@@ -1710,7 +1738,10 @@ contains
 #ifdef NBODY
       use particle_timestep,  only: pacc_max
 #endif /* NBODY */
-
+#ifdef STREAM_CR
+      use initstreamingcr, only: cred, iarr_all_escr, iarr_all_xfscr, iarr_all_yfscr, &
+      &                          nsub_scr, dt_scr, iarr_all_zfscr, smallescr
+#endif /* STREAM_CR */
       implicit none
 
       type(tsl_container), optional   :: tsl
@@ -1727,6 +1758,14 @@ contains
       type(value)                     :: cree_min, cree_max !< values of cre energy
       type(value)                     :: divv_min, divv_max !< values of div_v
 #endif /* CRESP */
+#ifdef STREAM_CR
+      type(value) :: escr_min, escr_max
+      type(value) :: fcmag_min, fcmag_max
+      type(value) :: c_reduced_v
+      type(value) :: fc_ovr_cescr
+      type(value) :: dt_scrv
+      type(value) :: nsubv
+#endif /* STREAM_CR */
 #ifdef VARIABLE_GP
       type(value)                     :: gpxmax, gpymax, gpzmax
       integer                         :: var_i
@@ -1745,7 +1784,56 @@ contains
       if (has_ion) call get_common_vars(flind%ion)
       if (has_neu) call get_common_vars(flind%neu)
       if (has_dst) call get_common_vars(flind%dst)
+#ifdef STREAM_CR
+! Only adding for first scr component for now
+      cgl => leaves%first
+      do while (associated(cgl))
+         call cgl%cg%costs%start
+         cgl%cg%wa(:,:,:) = cgl%cg%scr(iarr_all_escr(1),:,:,:)
+         call cgl%cg%costs%stop(I_OTHER)
+         cgl => cgl%nxt
+      enddo
 
+      call leaves%get_extremum(qna%wai, MAXL, escr_max)
+      call leaves%get_extremum(qna%wai, MINL, escr_min)
+
+      cgl => leaves%first
+      do while (associated(cgl))
+         call cgl%cg%costs%start
+         cgl%cg%wa(:,:,:) = sqrt(cgl%cg%scr(iarr_all_xfscr(1), :, :, :)**2 + cgl%cg%scr(iarr_all_yfscr(1), :, :, :)**2 &
+         &           + cgl%cg%scr(iarr_all_zfscr(1), :, :, :)**2)
+         call cgl%cg%costs%stop(I_OTHER)
+         cgl => cgl%nxt
+      enddo
+      call leaves%get_extremum(qna%wai, MAXL, fcmag_max)
+      call leaves%get_extremum(qna%wai, MINL, fcmag_min)
+
+      cgl => leaves%first
+      do while (associated(cgl))
+         call cgl%cg%costs%start
+         cgl%cg%wa = sqrt(cgl%cg%scr(iarr_all_xfscr(1), :, :, :)**2 + cgl%cg%scr(iarr_all_yfscr(1), :, :, :)**2 &
+         &           + cgl%cg%scr(iarr_all_zfscr(1), :, :, :)**2) / (cred * max(cgl%cg%scr(iarr_all_escr(1), :, :, :), smallescr))
+         call cgl%cg%costs%stop(I_OTHER)
+         cgl => cgl%nxt
+      enddo
+      call leaves%get_extremum(qna%wai, MAXL, fc_ovr_cescr)
+
+      c_reduced_v%val      = cred
+      c_reduced_v%assoc    = 0.0
+      c_reduced_v%proc     = 0
+      c_reduced_v%loc      = 0
+      c_reduced_v%coords   = 0.0
+      dt_scrv%val          = dt_scr
+      dt_scrv%assoc        = 0.0
+      dt_scrv%proc         = 0
+      dt_scrv%loc          = 0
+      dt_scrv%coords       = 0.0
+      nsubv%val            = real(nsub_scr)
+      nsubv%assoc          = 0.0
+      nsubv%proc           = 0
+      nsubv%loc            = 0
+      nsubv%coords         = 0.0
+#endif /* STREAM_CR */
 #ifdef MAGNETIC
       cgl => leaves%first
       do while (associated(cgl))
@@ -1762,7 +1850,6 @@ contains
       b_max%assoc = dt_cre_synch
       call piernik_MPI_Allreduce(b_max%assoc, pMIN)
 #endif /* CRESP */
-
       if (has_ion) then
          cgl => leaves%first
          do while (associated(cgl))
@@ -2016,6 +2103,17 @@ contains
             call cmnlog_s(fmt_loc,   'min(div_v)   ', id, divv_min)
             call cmnlog_l(fmt_dtloc, 'max(div_v)   ', id, divv_max)
 #endif /* CRESP */
+#ifdef STREAM_CR
+            id = "SCR"
+            call cmnlog_s(fmt_loc,   'min(escr)     ',  id, escr_min)
+            call cmnlog_s(fmt_loc,   'max(escr)     ',  id, escr_max)
+            call cmnlog_s(fmt_loc,   'min(|Fc|)     ',  id, fcmag_min)
+            call cmnlog_s(fmt_loc,   'max(|Fc|)     ',  id, fcmag_max)
+            call cmnlog_s(fmt_loc,   'c_reduced     ',  id, c_reduced_v)
+            call cmnlog_s(fmt_loc,   'max(|F|/cE)   ',  id, fc_ovr_cescr)
+            call cmnlog_s(fmt_loc,   'dt_scr        ',  id, dt_scrv)
+            call cmnlog_s(fmt_loc,   'nsub          ',  id, nsubv)
+#endif /* STREAM_CR */
 #ifdef RESISTIVE
             if (eta1_active) then
                id = "RES"
@@ -2057,7 +2155,16 @@ contains
             tsl%divv_min = divv_min%val
             tsl%divv_max = divv_max%val
 #endif /* CRESP */
-
+#ifdef STREAM_CR
+            tsl%escr_min         = escr_min%val
+            tsl%escr_max         = escr_max%val
+            tsl%fc_mag_min       = fcmag_min%val
+            tsl%fc_mag_max       = fcmag_max%val
+            tsl%fc_ovr_credescr  = fc_ovr_cescr%val
+            tsl%c_reduced        = cred
+            tsl%dt_scr           = dt_scr
+            tsl%nsub             = real(nsub_scr)
+#endif /* STREAM_CR */
 #ifdef RESISTIVE
             if (eta1_active) tsl%etamax = etamax%val
 #endif /* RESISTIVE */
