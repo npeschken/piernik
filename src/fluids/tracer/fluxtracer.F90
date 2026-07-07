@@ -28,9 +28,9 @@
 
 !/*
 !>
-!! \brief Computation of fluxes for tracer fluids
+!! \brief Computation of %fluxes for the tracer fluid
 !!
-!! The flux functions for tracer fluids are given by:
+!!The flux functions for dust are given by:
 !!\f[
 !!  \vec{F}{(\vec{u})} =
 !!  \left(\begin{array}{c}
@@ -51,39 +51,31 @@
 !<
 !*/
 module fluxtracer
-
+! pulled by TRACER
    implicit none
    private
    public :: flux_tracer
 
 contains
+!==========================================================================================
 
-   !>
-   !! \brief Compute tracer flux
-   !!
-   !! Computes the tracer flux as the product of tracer density and velocity.
-   !! Boundary values are set to match the innermost layer.
+#define RNG2 2:nm
    subroutine flux_tracer(fluxt, uut, vx)
 
       implicit none
 
-      real, dimension(:), intent(inout), pointer :: fluxt  !< flux for tracer density
-      real, dimension(:), intent(in),    pointer :: uut    !< tracer mass density
-      real, dimension(:), intent(in),    pointer :: vx     !< velocity component for current sweep direction
+      real, dimension(:), intent(inout), pointer :: fluxt  !< flux for tracer
+      real, dimension(:), intent(in),    pointer :: uut    !< part of u for tracer
+      real, dimension(:), intent(in),    pointer :: vx     !< velocity field of fluid for current sweep
 
-      integer :: n
+      integer :: n, nm
 
-      n = size(fluxt, 1)
+      n = size(fluxt,1); nm = n-1
 
-      associate (nm => n - 1)
-         ! Compute flux in the interior domain
-         fluxt(2:nm) = uut(2:nm) * vx(2:nm)
-
-         ! Set boundary values to match the innermost layer
-         fluxt(1) = fluxt(2)
-         fluxt(n) = fluxt(nm)
-      end associate
+      fluxt(RNG2) = uut(RNG2) * vx(RNG2)
+      fluxt(1)    = fluxt(2); fluxt(n) = fluxt(nm)
 
    end subroutine flux_tracer
+#undef RNG2
 
 end module fluxtracer

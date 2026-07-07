@@ -46,13 +46,20 @@ module fluidindex
 ! pulled by ANY
    use constants,  only: ndims
    use fluidtypes, only: var_numbers
+#ifdef STREAM_CR
+   use fluidtypes, only: var_numbers_scr
+#endif /* STREAM_CR*/
 
    implicit none
 
    private :: ndims, var_numbers ! QA_WARN: prevent reexporting
    public ! QA_WARN no secrets are kept here
 
-   type(var_numbers), save :: flind     !< COMMENT ME
+   type(var_numbers),save :: flind     !< COMMENT ME
+   
+#ifdef STREAM_CR
+   type(var_numbers_scr),save :: scrind     !< COMMENT ME
+#endif /* STREAM_CR*/
 
    integer(kind=4), parameter  :: nmag = ndims     !< number of magnetic field components
 
@@ -72,7 +79,7 @@ module fluidindex
    integer(kind=4), allocatable, dimension(:,:) :: iarr_mag_swp         !< array (size = nmag) of all mag. field indexes in the order depending on sweeps direction
 
    integer(kind=4) :: i_sg                                              !< index denoting position of the selfgravitating fluid in the row of fluids - should be an iarr_sg !
-
+   
 contains
 
    subroutine set_fluidindex_arrays(fl, have_ener)
@@ -109,6 +116,27 @@ contains
 
    end subroutine set_fluidindex_arrays
 
+#ifdef STREAM_CR
+   subroutine set_scrindex_arrays(scr_fluid)
+      
+      use fluidtypes,      only: component_scr
+      use initstreamingcr, only: iarr_all_escr, iarr_all_xfscr, iarr_all_yfscr, iarr_all_zfscr, iarr_all_scr_swp
+
+      implicit none
+
+       !use scr for streaming cosmic ray
+      class(component_scr), intent(inout) :: scr_fluid                
+      integer(kind=4),  save :: scrpos =1              ! Needed here because using scr_fluid%pos goes out of bound !
+
+      iarr_all_escr(scrpos) = scr_fluid%iescr
+      iarr_all_xfscr(scrpos) = scr_fluid%ixfscr
+      iarr_all_yfscr(scrpos) = scr_fluid%iyfscr
+      iarr_all_zfscr(scrpos) = scr_fluid%izfscr
+      iarr_all_scr_swp(:,1 + 4 * (scrpos-1) : 4 + 4 * (scrpos-1)) = scr_fluid%iarr_scr_swp(:,:)
+
+      scrpos = scrpos + 1
+   end subroutine set_scrindex_arrays
+#endif /* STREAM_CR */
 !>
 !! \brief Subroutine fluid_index constructing all multi-fluid indexes used in other parts of PIERNIK code
 !<
@@ -119,10 +147,16 @@ contains
       use initdust,       only: dust_fluid
       use initionized,    only: ion_fluid
       use initneutral,    only: neutral_fluid
-      use inittracer,     only: tracer_index, iarr_trc
 #ifdef COSM_RAYS
       use initcosmicrays, only: iarr_crn, iarr_cre, iarr_crs, cosmicray_index
 #endif /* COSM_RAYS */
+#ifdef TRACER
+      use inittracer,     only: tracer_index, iarr_trc
+#endif /* TRACER */
+#ifdef STREAM_CR
+      use initstreamingcr,   only: nscr, iarr_all_escr, iarr_all_xfscr, &
+      &                            iarr_all_yfscr, iarr_all_zfscr, iarr_all_scr_swp
+#endif /* STREAM_CR */
 
       implicit none
 
@@ -153,7 +187,16 @@ contains
       call cosmicray_index(flind)
 #endif /* !COSM_RAYS */
 
+#ifdef TRACER
       call tracer_index(flind)
+#endif /* TRACER */
+
+#ifdef STREAM_CR
+      allocate(scrind%scr(nscr))            
+      do i = 1, nscr
+            call scrind%scr(i)%set_scr_index(scrind)       ! initialize scr indices for each species
+      end do
+#endif /* STREAM_CR */
 
 ! Allocate index arrays
       allocate(iarr_mag_swp(ndims,nmag),iarr_all_mag(nmag))
@@ -176,7 +219,16 @@ contains
       allocate(iarr_all_crs(0))
 #endif /* !COSM_RAYS */
 
+#ifdef TRACER
       allocate(iarr_all_trc(flind%trc%all))
+#else /* !TRACER */
+      allocate(iarr_all_trc(0))
+#endif /* !TRACER */
+
+#ifdef STREAM_CR
+      allocate(iarr_all_scr_swp(xdim:zdim, 4*nscr))
+      allocate(iarr_all_escr(nscr),iarr_all_xfscr(nscr),iarr_all_yfscr(nscr),iarr_all_zfscr(nscr))
+#endif /* !STREAM_CR */
 
       ! Compute index arrays for magnetic field
       iarr_mag_swp(xdim,:) = [xdim,ydim,zdim]
@@ -204,11 +256,19 @@ contains
       iarr_all_crs(1:flind%crs%all) = iarr_crs
 #endif /* COSM_RAYS */
 
+#ifdef TRACER
       iarr_all_swp(xdim,flind%trc%beg:flind%trc%end) = iarr_trc
       iarr_all_swp(ydim,flind%trc%beg:flind%trc%end) = iarr_trc
       iarr_all_swp(zdim,flind%trc%beg:flind%trc%end) = iarr_trc
 
       iarr_all_trc(1:flind%trc%all) = iarr_trc
+#endif /* TRACER */
+
+#ifdef STREAM_CR
+      do i=1, nscr
+            call set_scrindex_arrays(scrind%scr(i))
+      end do    
+#endif /* STREAM_CR */
 
       allocate(flind%all_fluids(flind%fluids))
 
@@ -232,8 +292,12 @@ contains
 
    subroutine cleanup_fluidindex
 
-      use diagnostics, only: my_deallocate
-      use fluids_pub,  only: has_ion, has_neu, has_dst
+      use diagnostics,        only: my_deallocate
+      use fluids_pub,         only: has_ion, has_neu, has_dst
+#ifdef STREAM_CR
+      use initstreamingcr,    only: nscr, iarr_all_escr, iarr_all_xfscr, &
+      &                             iarr_all_yfscr, iarr_all_zfscr, iarr_all_scr_swp
+#endif /* STREAM_CR */
 
       implicit none
 
@@ -254,6 +318,14 @@ contains
       call my_deallocate(iarr_all_crs)
 
       call my_deallocate(iarr_all_trc)
+
+#ifdef STREAM_CR
+      if (allocated(iarr_all_escr)) call my_deallocate(iarr_all_escr)
+      if (allocated(iarr_all_xfscr)) call my_deallocate(iarr_all_xfscr)
+      if (allocated(iarr_all_yfscr)) call my_deallocate(iarr_all_yfscr)
+      if (allocated(iarr_all_zfscr)) call my_deallocate(iarr_all_zfscr)
+      if (allocated(iarr_all_scr_swp)) call my_deallocate(iarr_all_scr_swp)
+#endif /* STREAM_CR */
 
       do i = lbound(flind%all_fluids, dim=1), ubound(flind%all_fluids, dim=1)
          deallocate(flind%all_fluids(i)%fl%iarr)

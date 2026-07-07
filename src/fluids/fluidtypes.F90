@@ -36,6 +36,9 @@ module fluidtypes
 
    private
    public :: component, component_fluid, phys_prop, var_numbers
+#ifdef STREAM_CR
+   public :: component_scr, var_numbers_scr
+#endif /* STREAM_CR */
 
    type :: phys_prop
       type(value) :: dens_min
@@ -62,7 +65,6 @@ module fluidtypes
       integer(kind=4) :: beg = 0   !< beginning number of variables in fluid/component
       integer(kind=4) :: end = 0   !< end number of variables in fluid/component
       integer(kind=4) :: pos = 0   !< index denoting position of the fluid in the row of fluids
-      ! 'pos' seems to be only auxiliary, consider removing it.
 #ifdef CRESP
       integer(kind=4) :: nbeg = 0  !< beginning number of number density components for fluid/component (cre) !!!
       integer(kind=4) :: ebeg = 0  !< beginning number of energy density components for fluid/component (cre) !!!
@@ -121,7 +123,6 @@ module fluidtypes
       integer(kind=4) :: fluids      = 0      !< number of fluids (ionized gas, neutral gas, dust)
       integer(kind=4) :: energ       = 0      !< number of non-isothermal fluids (indicating the presence of energy density in the vector of conservative variables)
       integer(kind=4) :: components  = 0      !< number of components, such as CRs, tracers, magnetic helicity (in future), whose formal description does not involve [???]
-      ! 'components' seems to be only auxiliary, consider removing it.
       integer(kind=4) :: fluids_sg   = 0      !< number of selfgravitating fluids (ionized gas, neutral gas, dust)
 
       type(fluid_arr), dimension(:), pointer :: all_fluids
@@ -138,6 +139,31 @@ module fluidtypes
    contains
       procedure :: any_fluid_is_selfgrav
    end type var_numbers
+
+#ifdef STREAM_CR
+   type :: component_scr
+      integer(kind=4) :: all = 0   !< number of all variables in scr fluid/component
+      integer(kind=4) :: beg = 0   !< beginning number of variables in scr fluid/component
+      integer(kind=4) :: end = 0   !< end number of variables in scr fluid/component
+      integer(kind=4) :: pos = 0   !< index denoting position of the nt species in the row of scr fluids
+      integer(kind=4) :: iescr     = -1        !< index denoting position of the streaming cr energy density in array arrays::scr 
+      integer(kind=4) :: ixfscr    = -1        !< index denoting position of the x-streaming cr flux density in array arrays::scr
+      integer(kind=4) :: iyfscr    = -1        !< index denoting position of the y-streaming cr flux density in array arrays::scr
+      integer(kind=4) :: izfscr    = -1        !< index denoting position of the z-streaming cr flux density in array arrays::scr
+      real    :: gam   = -1.0                  !< fluid\'s adiabatic index
+      real    :: gam_1 = -1.0                  !< fluid\'s adiabatic index minus one
+      integer(kind=4), allocatable, dimension(:)   :: iarr_scr        
+      integer(kind=4), allocatable, dimension(:,:) :: iarr_scr_swp
+   contains
+      procedure, pass :: set_scr_index
+   end type component_scr
+
+   type :: var_numbers_scr
+      integer(kind=4) :: all         = 0      !< total number of fluid variables = the size of array \a u(:,:,:,:) in the first index
+      integer(kind=4) :: nscr        = 0      !< number of streaming CR species
+      class(component_scr), allocatable, dimension(:) :: scr
+   end type var_numbers_scr
+#endif /* STREAM_CR */
 
    abstract interface
       subroutine pass_flind(this, flind)
@@ -371,6 +397,53 @@ contains
       if (master) call printinfo(msg, V_VERBOSE)
 
    end subroutine set_fluid_index
+
+#ifdef STREAM_CR
+
+      subroutine set_scr_index(this,scrind)
+
+         use diagnostics, only: ma1d, ma2d, my_allocate
+         use constants,   only: xdim, ydim, zdim, ndims, I_ONE, I_FOUR
+         use initstreamingcr, only: gamma_scr
+
+         implicit none
+
+         class(component_scr), intent(inout) :: this
+         class(var_numbers_scr), intent(inout)      :: scrind
+
+         integer(kind=4), save                 :: iscr=0
+
+            
+
+         ! this <- is more specific to a single component. In this case the streaming CR
+         this%all = I_FOUR                                 ! 4 components (ec,fcx,fcy,fcz) for each cr species  
+         this%beg = scrind%all + I_ONE                     
+         this%end = this%beg + this%all - I_ONE            
+
+         this%iescr    = this%beg                                                  
+         this%ixfscr   = this%iescr   + I_ONE                  
+         this%iyfscr   = this%ixfscr  + I_ONE
+         this%izfscr   = this%iyfscr  + I_ONE              ! (this%end should match this value)
+
+         this%pos = this%pos + iscr
+         iscr = iscr + I_ONE
+         scrind%nscr     = scrind%nscr + I_ONE       ! # of streaming cosmic rays
+         scrind%all        = scrind%all+ I_FOUR          
+         
+         ma1d = [this%all]
+         call my_allocate(this%iarr_scr,     ma1d)
+         ma2d = [ndims, this%all]
+         call my_allocate(this%iarr_scr_swp, ma2d)
+         this%iarr_scr(1:4)           = [this%iescr, this%ixfscr, this%iyfscr, this%izfscr]
+         this%iarr_scr_swp(xdim, 1:4) = [this%iescr, this%ixfscr, this%iyfscr, this%izfscr]
+         this%iarr_scr_swp(ydim, 1:4) = [this%iescr, this%iyfscr, this%ixfscr, this%izfscr]
+         this%iarr_scr_swp(zdim, 1:4) = [this%iescr, this%izfscr, this%iyfscr, this%ixfscr]
+
+         this%gam = gamma_scr(iscr)
+         this%gam_1 = gamma_scr(iscr) - 1.0
+
+      end subroutine set_scr_index
+#endif /* STREAM_CR */
 
 !>
 !! \brief returns True value if any fluid is selfgravitating

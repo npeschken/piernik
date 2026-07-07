@@ -41,11 +41,11 @@ module thermal
    implicit none
 
    private
-   public ::  init_thermal, thermal_active, cfl_coolheat, thermal_sources, itemp, fit_cooling_curve, cleanup_thermal, calc_tcool, find_temp_bin, alpha, Tref, lambda0, G1_heat, G0_heat
+   public ::  init_thermal, thermal_active, cfl_coolheat, thermal_sources, itemp, fit_cooling_curve, cleanup_thermal, calc_tcool, find_temp_bin, alpha, Tref, lambda0, G1_heat, G0_heat, T_jump
 
    character(len=cbuff_len)        :: cool_model, cool_curve, heat_model, scheme, cool_file
    logical                         :: thermal_active, CMZ_photoelectric
-   real                            :: alpha_cool, L0_cool, G0_heat, G1_heat, G2_heat, cfl_coolheat
+   real                            :: alpha_cool, L0_cool, G0_heat, G1_heat, G2_heat, cfl_coolheat, T_jump
    real                            :: Teq          !> cooling parameter
    real, dimension(10)             :: Teql         !> temperatures of cooling / heating equilibrium
    real, dimension(:,:), allocatable :: Teql_tab         !> temperatures of cooling / heating equilibrium
@@ -66,7 +66,7 @@ contains
       use bcast,            only: piernik_MPI_Bcast
       use cg_list_global,   only: all_cg
       use constants,        only: PIERNIK_INIT_MPI
-      use dataio_pub,       only: code_progress, die, nh, printinfo, warn
+      use dataio_pub,       only: code_progress, die, nh, printinfo, warn, msg
       use mpisetup,         only: cbuff, lbuff, rbuff,ibuff,  master, slave
       use named_array_list, only: qna
       use units,            only: cm, erg, sek, mH
@@ -78,7 +78,7 @@ contains
       real :: dens, ddens
       integer :: i
 
-      namelist /THERMAL/ thermal_active, heat_model, Lambda_0, alpha_cool, Teq, G0, G1, G2, x_ion, cfl_coolheat, isochoric, scheme, cool_model, cool_curve, cool_file, d_isochoric, ndens_tab, CMZ_photoelectric
+      namelist /THERMAL/ thermal_active, heat_model, Lambda_0, alpha_cool, Teq, G0, G1, G2, x_ion, cfl_coolheat, isochoric, scheme, cool_model, cool_curve, cool_file, d_isochoric, ndens_tab, CMZ_photoelectric, T_jump
 
       if (code_progress < PIERNIK_INIT_MPI) call die("[thermal:init_thermal] mpi not initialized.")
 
@@ -103,7 +103,9 @@ contains
       isochoric      = 1
       d_isochoric    = 1.0
       cfl_coolheat   = 0.1
+      T_jump         = 43287.612810830615   ! Default value present in hydrostatic module previously
       CMZ_photoelectric = .false.
+
 
       if (master) then
 
@@ -132,6 +134,7 @@ contains
          rbuff(7) = x_ion
          rbuff(8) = cfl_coolheat
          rbuff(9) = d_isochoric
+         rbuff(10) = T_jump
 
          lbuff(1) = thermal_active
          lbuff(2)  = CMZ_photoelectric
@@ -172,6 +175,7 @@ contains
          x_ion          = rbuff(7)
          cfl_coolheat   = rbuff(8)
          d_isochoric    = rbuff(9)
+         T_jump         = rbuff(10)
 
          isochoric      = ibuff(1)
          ndens_tab      = ibuff(2)
@@ -219,7 +223,6 @@ contains
       endif
 
       if (scheme == 'Explicit') call warn('[thermal:init_thermal][scheme: Explicit] Warning: substepping with a different timestep for every cell in the Explicit scheme leads to perturbations. Take a very small cfl_coolheat (~10^-6) or use a constant timestep.')
-
    end subroutine init_thermal
 
    subroutine fit_cooling_curve(dens)
@@ -424,6 +427,17 @@ contains
             endif
          enddo
 
+         if (i < nbins) then     ! flush the trailing segment; for a pure power law this is the ONLY segment
+            a = (loglambda(nbins) - loglambda(i)) / (logT(nbins) - logT(i))
+            b = loglambda(nbins) - a*logT(nbins)
+            k = k + 1
+            if (fill_array) then
+               Tref(k) = 10**logT(i)
+               alpha(k) = a
+               lambda0(k) = lambda(nbins)/abs(lambda(nbins)) * 10**(b+a*logT(i))
+            endif
+         endif
+
          if (set_nfuncs) then
             nfuncs = k
           !  if (master) then
@@ -582,9 +596,9 @@ contains
                case ('EE')
                   maxva = 0
                   maxcrheating=0
-                  do i = 5, n(xdim)-4
-                     do j = 5, n(ydim)-4
-                        do k = 5, n(zdim)-4
+                  do i = 2, n(xdim)-1          ! The bounds were wrong previously which lead to artifacts when nb = 4
+                     do j = 2, n(ydim)-1
+                        do k = 2, n(zdim)-1
                            int_ener = ener(i,j,k) - kinmag_ener(i,j,k)
                            !tcool    = kbgmh * ta(i,j,k) / (dens(i,j,k) * abs(L0_cool) * (ta(i,j,k)/Teq)**alpha_cool)
                            ta(i,j,k) = int_ener * ikbgmh / dens(i,j,k)
@@ -597,16 +611,17 @@ contains
                            if (CMZ_photoelectric) then
                               R1 = sqrt(X(i)**2+Y(j)**2)
                               if (R1 .lt. 400) then
-                                 fact_G1 = 1.0 + 0.01/0.00021 * exp(-dens(i,j,k)/1.775) / 10    !Following Moon+21 inside CMZ
+                                    fact_G1 = 0.01/0.00021 * exp(-dens(i,j,k)/1.775) / 10    !Following Moon+21 inside CMZ
                               else
-                                 fact_G1 = 10.0**(144.0/5 * 10.0**4 / R1**2 - 9.0/5)
+                                 fact_G1 = 10.0**(144.0/5 * 10.0**4 / R1**2 - 9.0/5)         ! Transition between CMZ and solar neighborhood
                               endif
-                              if ((abs(Z(k)) .lt. 90) .and. (abs(Z(k)) .gt. 110))  then
-                                 fact_G1 = fact_G1 * (-0.045 * abs(Z(k)) + 5.05)
-                              else if (abs(Z(k)) .gt. 110) then
+                              if ((abs(Z(k)) .lt. 50) .and. (abs(Z(k)) .gt. 30))  then       ! Transition to halo
+                                 fact_G1 = fact_G1 * (-0.045 * abs(Z(k)) + 2.35)
+                              else if (abs(Z(k)) .gt. 50) then                               ! Halo
                                  fact_G1 = 0.1
                               endif
                               fact_G1 = max(fact_G1, 0.1)
+
                               if (ta(i,j,k) .gt. 15000.0) then
                                  fact_G1 = 0.0
                               endif
@@ -692,7 +707,9 @@ contains
          nfuncs2 = nfuncs
       endif
 
-      if (temp >= Tref(nfuncs2)) then
+      if (nfuncs2 == 1) then             ! degenerate fit: a single power-law bin covers the whole curve
+         ii = 1
+      else if (temp >= Tref(nfuncs2)) then
          ii = nfuncs2
       else if (temp < Tref(2)) then
          ii = 1

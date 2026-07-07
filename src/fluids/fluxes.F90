@@ -76,11 +76,13 @@ contains
 
       use fluidindex,     only: flind, nmag
       use fluidtypes,     only: component_fluid
-      use fluxtracer,     only: flux_tracer
-      use inittracer,     only: ntracers, trace_fluid
 #ifdef COSM_RAYS
       use fluxcosmicrays, only: flux_crs
 #endif /* COSM_RAYS */
+#ifdef TRACER
+      use fluxtracer,     only: flux_tracer
+      use inittracer,     only: trace_fluid
+#endif /* TRACER */
 
       implicit none
 
@@ -94,7 +96,9 @@ contains
 
       real, dimension(:,:),             pointer                :: pflux, pcfr, puu, pbb
       real, dimension(:),               pointer                :: pvx
+#ifdef TRACER
       real, dimension(:),               pointer                :: pu1d, pfl1d
+#endif /* TRACER */
       class(component_fluid),           pointer                :: pfl
       integer                                                  :: p
 !>
@@ -124,16 +128,20 @@ contains
       cfr (:, flind%crs%beg:flind%crs%end) = spread(cfr(:, flind%all_fluids(1)%fl%iarr(1)), 2, flind%crs%all)
 #endif /* COSM_RAYS */
 
-      do p = 1, ntracers
+#ifdef TRACER
+      do p = 1, size(trace_fluid)
          pu1d  =>   uu(:, flind%trc%beg + p - 1)
          pfl1d => flux(:, flind%trc%beg + p - 1)
          pvx   =>   vx(:, flind%all_fluids(trace_fluid(p))%fl%pos)
          call flux_tracer(pfl1d, pu1d, pvx)
-         cfr(:, flind%trc%beg + p - 1)  = cfr(:, flind%all_fluids(trace_fluid(p))%fl%idn)
+         cfr(:, flind%trc%beg + p - 1)  = cfr(:, flind%all_fluids(trace_fluid(p))%fl%iarr(1))
       enddo
+#endif /* TRACER */
 
    end subroutine all_fluxes
 
+!==========================================================================================
+!/*
 !>
 !! \brief This subroutine applies flux limiter.
 !!
@@ -168,7 +176,7 @@ contains
 !! \f}
 !! are %fluxes of left- and right-moving waves interpolated to cell boundaries.
 !<
-
+!*/
    subroutine set_limiter(lname)
 
       use constants,  only: V_VERBOSE
