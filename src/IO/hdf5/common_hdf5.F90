@@ -104,31 +104,35 @@ contains
 
    subroutine init_hdf5(vars)
 
-      use constants,        only: dsetnamelen, singlechar, RIEMANN_UNSPLIT
-      use fluidindex,       only: flind
-      use dataio_pub,       only: warn, die
-      use fluids_pub,       only: has_ion, has_dst, has_neu
-      use global,           only: cc_mag, which_solver
-      use mpisetup,         only: master
-      use named_array_list, only: wna
+      use constants,       only: dsetnamelen, singlechar, RIEMANN_UNSPLIT
+      use fluidindex,      only: flind
+      use dataio_pub,      only: warn, die
+      use fluids_pub,      only: has_ion, has_dst, has_neu
+      use global,          only: cc_mag, which_solver
+      use mpisetup,        only: master
 #ifdef COSM_RAYS
-      use cr_data,          only: cr_names, cr_spectral
+      use cr_data,         only: cr_names, cr_spectral
 #endif /* COSM_RAYS */
 #ifdef CRESP
-      use initcosmicrays,   only: ncrb
+      use initcosmicrays,  only: ncrb
 #endif /* CRESP */
+#ifdef STREAM_CR
+      use initstreamingcr, only: nscr
+#endif /* STREAM_CR */
 
       implicit none
 
       character(len=dsetnamelen), dimension(:), intent(in) :: vars  !< quantities to be plotted, see dataio::vars
 
-      integer                    :: i, k
-      character(len=singlechar)  :: fc, ord
-      character(len=dsetnamelen) :: aux, ifmt
+      integer                                              :: i
+      character(len=singlechar)                            :: fc, ord
+      character(len=dsetnamelen)                           :: aux, ifmt
 #ifdef COSM_RAYS
-      integer                    :: ke
+      integer                                              :: k, ke
 #endif /* COSM_RAYS */
-
+#ifdef STREAM_CR
+      integer                                              :: s
+#endif /* STREAM_CR */
       i = 10  ! Let the default counter be 2-digit wide
 #ifdef COSM_RAYS
       i = max(i, size(cr_names))
@@ -269,10 +273,6 @@ contains
                   call append_var('zfmomzi')
                   if (flind%ion%has_energy) call append_var('zfenei')
                endif
-            case ('trcr')
-               do k = flind%trc%beg, flind%trc%end
-                  call append_var(wna%get_component_name(wna%fi, int(k, kind=4)))
-               enddo
 #ifdef COSM_RAYS
             case ('encr')
                do k = 1, size(cr_names)
@@ -324,6 +324,73 @@ contains
                   call append_var(aux)
                enddo
 #endif /* CRESP */
+#ifdef STREAM_CR
+         case ('escr')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'escr', s
+               call append_var(aux)
+            enddo
+         case ('xfscr')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'xfscr', s
+               call append_var(aux)
+            enddo
+         case ('yfscr')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'yfscr', s
+               call append_var(aux)
+            enddo
+         case ('zfscr')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'zfscr', s
+               call append_var(aux)
+            enddo
+         case ('bdotgradpc')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'bdotgradpc', s
+               call append_var(aux)
+            enddo
+         case ('gradpcx')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'gradpcx', s
+               call append_var(aux)
+            enddo
+         case ('gradpcy')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'gradpcy', s
+               call append_var(aux)
+            enddo
+         case ('gradpcz')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'gradpcz', s
+               call append_var(aux)
+            enddo
+         case ('sigma_paral')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'sigma_paral', s
+               call append_var(aux)
+            enddo
+         case ('sigma_perp')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'sigma_perp', s
+               call append_var(aux)
+            enddo
+         case ('vsx')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'vel_stream_x', s
+               call append_var(aux)
+            enddo
+         case ('vsy')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'vel_stream_y', s
+               call append_var(aux)
+            enddo
+         case ('vsz')
+            do s = 1, nscr
+               write(aux, '(a,"_",i2.2)') 'vel_stream_z', s
+               call append_var(aux)
+            enddo
+#endif /* STREAM_CR */
             case default
                if (.not. has_ion .and. (any(trim(vars(i)) == ["deni", "vlxi", "vlyi", "vlzi", "enei", "ethi", "prei"]) .or. any(trim(vars(i)) == ["momxi", "momyi", "momzi"]))) then
                   if (master) call warn("[common_hdf5:init_hdf5] Cannot safely use plot variable '" // trim(vars(i)) // "' without ionized fluid")

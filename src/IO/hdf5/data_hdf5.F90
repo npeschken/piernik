@@ -155,10 +155,27 @@ contains
          case ("gpot", "sgpt")
             f%fu = "\rm{cm}^2 / \rm{s}^2"
             f%f2cgs = 1.0 / (cm**2 / sek**2)
-         case default
-            if (var(1:7) == "tracer_") then
-               f%fu = ""
-            endif
+         case ("trcr")
+#ifdef STREAM_CR
+      case ('escr_01':'escr_99')
+         f%fu   = "\rm{erg}/\rm{cm}^3"
+         f%f2cgs = 1.0 / (erg / cm**3)
+      case ('xfscr_01':'xfscr_99', 'yfscr_01':'yfscr_99', 'zfscr_01':'zfscr_99')
+         f%fu   = "\rm{erg}/(\rm{cm}^2\ \rm{s})"
+         f%f2cgs = 1.0 / (erg / (cm**2 * sek))
+      case ('gradpcx_01':'gradpcx_99', 'gradpcy_01':'gradpcy_99', 'gradpcz_01':'gradpcz_99')
+         f%fu   = "\rm{erg}/\rm{cm}^4"
+         f%f2cgs = 1.0 / (erg / cm**4)
+      case ('bdotgradpc_01':'bdotgradpc_99')
+         f%fu   = "\rm{Gs}\ \rm{erg}/\rm{cm}^4"
+         f%f2cgs = 1.0 / ( (fpi * sqrt(cm / (miu0 * gram)) * sek) * (erg / cm**4) )
+      case ('sigma_paral_01':'sigma_paral_99', 'sigma_perp_01':'sigma_perp_99')
+         f%fu   = "\rm{s}/\rm{cm}^2"
+         f%f2cgs = 1.0 / (sek / cm**2)
+      case ("vel_stream_x_01": "vel_stream_x_99","vel_stream_y_01": "vel_stream_y_99","vel_stream_z_01": "vel_stream_z_99")
+         f%fu = "\rm{cm}/\rm{s}"
+         f%f2cgs = 1.0 / (cm/sek)
+#endif /* STREAM_CR */
       end select
    end function datafields_descr
 
@@ -354,7 +371,6 @@ contains
       use fluidtypes,       only: component_fluid
       use func,             only: ekin, emag, sq_sum3
       use grid_cont,        only: grid_container
-      use inittracer,       only: iarr_trc, ntracers
       use mpisetup,         only: proc
 #ifdef MAGNETIC
       use constants,        only: xdim, ydim, zdim, half, two, I_TWO, I_FOUR, I_SIX, I_EIGHT
@@ -373,6 +389,12 @@ contains
 #ifndef ISO
       use units,            only: kboltz, mH
 #endif /* !ISO */
+#ifdef STREAM_CR
+      use initstreamingcr,    only: nscr, cred
+      use constants,          only: gpcn, sgmn, ndims
+      use named_array_list,   only: wna
+      use fluidindex,         only: scrind
+#endif /* STREAM_CR */
 
       implicit none
 
@@ -384,9 +406,9 @@ contains
       class(component_fluid), pointer                :: fl_dni, fl_mach
       integer(kind=4)                                :: i_xyz
       integer                                        :: ii, jj, kk
-      integer                                        :: i
 #ifdef COSM_RAYS
       integer(kind=4)                                :: clast
+      integer                                        :: i
       integer, parameter                             :: auxlen = dsetnamelen - 1
       character(len=auxlen)                          :: aux
       character(len=I_TWO)                           :: varn2
@@ -394,6 +416,11 @@ contains
 #ifdef CRESP
       integer                                        :: ibin
 #endif /* CRESP */
+#ifdef STREAM_CR
+      integer                                        :: is
+      integer, parameter                             :: auxlen = dsetnamelen - 1
+      character(len=auxlen)                          :: aux
+#endif /* STREAM_CR */
 
       call common_shortcuts(var, fl_dni, i_xyz)
       if (.not. associated(fl_dni)) tab = -huge(1.)
@@ -497,6 +524,75 @@ contains
             read(var,'(A4,I2.2)') aux, i !> \deprecated BEWARE 0 <= i <= 99, no other indices can be dumped to hdf file
             tab(:,:,:) = cg%w(wna%ind(dfpq%q_nam))%arr(i,RNG)  !flind%cre%fbeg+i-1, RNG)
 #endif /* CRESP */
+#ifdef STREAM_CR
+         case ('escr_01':'escr_99')                                !>  Ec
+            read(var, '(A5,I2)') aux, is     ! 'escr_' + nn
+            if (is < 1 .or. is > nscr) stop 'escr_*: species out of range'
+            tab(:,:,:) = cg%scr( scrind%scr(is)%iescr, RNG )
+
+         case ('xfscr_01':'xfscr_99')                                !> xth component of Fc
+            read(var, '(A6,I2)') aux, is     ! 'xfscr_' + nn
+            tab(:,:,:) = cg%scr( scrind%scr(is)%ixfscr, RNG )
+
+         case ('yfscr_01':'yfscr_99')                                !> yth component of Fc
+            read(var, '(A6,I2)') aux, is     ! 'yfscr_' + nn
+            tab(:,:,:) = cg%scr( scrind%scr(is)%iyfscr, RNG )
+
+         case ('zfscr_01':'zfscr_99')                                !> zth component of Fc
+            read(var, '(A6,I2)') aux, is     ! 'zfscr_' + nn
+            tab(:,:,:) = cg%scr( scrind%scr(is)%izfscr, RNG )
+
+         !< ∇Pc
+         case ('gradpcx_01':'gradpcx_99')
+            read(var, '(A8,I2)') aux, is     ! 'gradpcx_' + nn
+            tab(:,:,:) = cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + xdim, RNG )
+
+         case ('gradpcy_01':'gradpcy_99')
+            read(var, '(A8,I2)') aux, is
+            tab(:,:,:) = cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + ydim, RNG )
+
+         case ('gradpcz_01':'gradpcz_99')
+            read(var, '(A8,I2)') aux, is
+            tab(:,:,:) = cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + zdim, RNG )
+#ifdef MAGNETIC
+         !< |B·∇Pc|
+         case ('bdotgradpc_01':'bdotgradpc_99')
+            read(var, '(A11,I2)') aux, is
+            tab(:,:,:) = cg%b(xdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + xdim, RNG ) + &
+            &            cg%b(ydim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + ydim, RNG ) + &
+            &            cg%b(zdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + zdim, RNG )
+         case ('vel_stream_x_01':'vel_stream_x_99')
+            read(var, '(A13,I2)') aux, is
+            tab(:,:,:) = cg%b(xdim, RNG)/sqrt(cg%u(fl_dni%idn, RNG)) *  &
+            &            sign(1.0,cg%b(xdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + xdim, RNG ) + &
+            &            cg%b(ydim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + ydim, RNG ) + &
+            &            cg%b(zdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + zdim, RNG ))
+         case ('vel_stream_y_01':'vel_stream_y_99')
+            read(var, '(A13,I2)') aux, is
+            tab(:,:,:) = cg%b(ydim, RNG)/sqrt(cg%u(fl_dni%idn, RNG)) *  &
+            &            sign(1.0,cg%b(xdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + xdim, RNG ) + &
+            &            cg%b(ydim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + ydim, RNG ) + &
+            &            cg%b(zdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + zdim, RNG ))
+         case ('vel_stream_z_01':'vel_stream_z_99')
+            read(var, '(A13,I2)') aux, is
+            tab(:,:,:) = cg%b(zdim, RNG)/sqrt(cg%u(fl_dni%idn, RNG)) *  &
+            &            sign(1.0,cg%b(xdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + xdim, RNG ) + &
+            &            cg%b(ydim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + ydim, RNG ) + &
+            &            cg%b(zdim, RNG) * cg%w(wna%ind(gpcn))%arr( (is-1)*ndims + zdim, RNG ))
+#endif /* MAGNETIC */
+         !< σ
+         case ('sigma_paral_01':'sigma_paral_50')                    !> parallel component of σ
+            read(var, '(A12,I2)') aux, is
+            tab(:,:,:) = cred * cg%w(wna%ind(sgmn))%arr( 2 * (is-1) + 1, RNG )
+         case ('sigma_perp_01':'sigma_perp_50')                      !> perpendicular component of σ
+            read(var, '(A12,I2)') aux, is
+            tab(:,:,:) = cred * cg%w(wna%ind(sgmn))%arr( 2 * (is-1) + 2, RNG )
+#endif /* STREAM_CR */
+#ifdef TRACER
+         case ("trcr01" : "trcr10")
+            read(var,'(A4,I2.2)') aux, i !> \deprecated BEWARE 0 <= i <= 99, no other indices can be dumped to hdf file
+            tab(:,:,:) = cg%u(flind%trc%beg+i-1, RNG)
+#endif /* TRACER */
          case ("dend", "deni", "denn")
             if (associated(fl_dni)) tab(:,:,:) = cg%u(fl_dni%idn, RNG)
          case ("vlxd", "vlxn", "vlxi", "vlyd", "vlyn", "vlyi", "vlzd", "vlzn", "vlzi")
@@ -684,16 +780,7 @@ contains
          case ("proc")
             tab(:,:,:) = proc
          case default
-            if (var(1:7) == "tracer_") then
-               read(var(8:), *, iostat=ierrh) i
-               if (ierrh == 0 .and. i > 0 .and. i <= ntracers) then
-                  tab(:,:,:) = cg%u(iarr_trc(i), RNG)
-               else
-                  ierrh = -1
-               endif
-            else
-               ierrh = -1
-            endif
+            ierrh = -1
       end select
       end associate
 
