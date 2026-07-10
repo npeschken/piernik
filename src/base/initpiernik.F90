@@ -218,7 +218,7 @@ contains
 #ifdef NBODY
       call init_particles
       call init_psolver
-      call init_SF  
+!      call init_SF  
 #endif /* NBODY */
 #ifdef MULTIGRID
       call init_multigrid_ext                ! Has to be called before init_grid
@@ -348,9 +348,9 @@ contains
          !  Do we need to do anything particle-related to be called here?
 #endif /* SELF_GRAV && NBODY */
 #ifdef NBODY
-         call initialize_id()      ! idempotent: per-process particle id offsets
+   !      call initialize_id()      ! idempotent: per-process particle id offsets
          
-         call seed_initial_stars   ! no-op unless initial_stars = .true. in STAR_FORMATION_CONTROL
+    !     call seed_initial_stars   ! no-op unless initial_stars = .true. in STAR_FORMATION_CONTROL
 #endif /* NBODY */
          if (associated(problem_post_IC)) call problem_post_IC
       endif
