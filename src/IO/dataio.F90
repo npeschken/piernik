@@ -1898,7 +1898,7 @@ contains
                   p = half*( (cg%w(wna%bi)%span(xdim,cg%ijkse+dom%D2a(xdim,:,:)) - cg%w(wna%bi)%span(xdim,cg%ijkse-dom%D2a(xdim,:,:)))/cg%dx &
                        &    +(cg%w(wna%bi)%span(ydim,cg%ijkse+dom%D2a(ydim,:,:)) - cg%w(wna%bi)%span(ydim,cg%ijkse-dom%D2a(ydim,:,:)))/cg%dy &
                        &    +(cg%w(wna%bi)%span(zdim,cg%ijkse+dom%D2a(zdim,:,:)) - cg%w(wna%bi)%span(zdim,cg%ijkse-dom%D2a(zdim,:,:)))/cg%dz ) / &
-                       sqrt(sq_sum3(cg%b(xdim, RNG), cg%b(ydim, RNG),  cg%b(zdim, RNG)))
+                       sqrt(sq_sum3(cg%b(xdim, RNG), cg%b(ydim, RNG),  cg%b(zdim, RNG))+tiny(1.0))
                else
                   p = ( (cg%w(wna%bi)%span(xdim,cg%ijkse+dom%D2a(xdim,:,:)) - cg%w(wna%bi)%span(xdim,cg%ijkse))*cg%dx &
                        +(cg%w(wna%bi)%span(ydim,cg%ijkse+dom%D2a(ydim,:,:)) - cg%w(wna%bi)%span(ydim,cg%ijkse))*cg%dy &
