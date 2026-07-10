@@ -137,7 +137,7 @@ contains
       use dataio_pub,       only: msg, warn
       use fluidindex,       only: iarr_all_dn, iarr_all_mx, iarr_all_my, iarr_all_mz, iarr_all_en
       use mpisetup,         only: master
-      use named_array_list, only: qna, wna
+      use named_array_list, only: qna, wna, na_var_4d
       use refinement,       only: inactive_name
 #ifdef STREAM_CR
       use initstreamingcr,  only: iarr_all_escr
@@ -147,6 +147,8 @@ contains
       character(len=cbuff_len),                   intent(in)  :: vname !< string specifying the field on
       integer(kind=4),                            intent(out) :: iv    !< field index in cg%q or cg%w array
       integer(kind=4), dimension(:), allocatable, intent(out) :: ic    !< component index array (cg%w(iv)%arr(ic,:,:,:)) or INVALID for 3D arrays
+      integer(kind=4) :: j
+
 
       iv = INVALID
 
@@ -178,6 +180,23 @@ contains
 #endif /* STREAM_CR */
          return
       endif
+      !> identify here all {den,vl[xyz],ene}{d,n,i}, tracers and other named fields
+      do iv = lbound(wna%lst(:), dim=1, kind=4), ubound(wna%lst(:), dim=1, kind=4)
+         select type (lst => wna%lst)
+            type is (na_var_4d)
+               if (allocated(lst(iv)%compname)) then
+                  do j = lbound(lst(iv)%compname(:), dim=1, kind=4), ubound(lst(iv)%compname(:), dim=1, kind=4)
+                     if (trim(vname) == trim(lst(iv)%compname(j))) then
+                        allocate(ic(1))
+                        ic = j
+                        return
+                     endif
+                  enddo
+               endif
+         end select
+      enddo
+      iv = INVALID
+
       !> \todo identify here all {den,vl[xyz],ene}{d,n,i}
       !> \todo introduce possibility to operate on pressure or other indirect fields
 

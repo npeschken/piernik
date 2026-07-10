@@ -147,12 +147,10 @@ contains
       use initdust,       only: dust_fluid
       use initionized,    only: ion_fluid
       use initneutral,    only: neutral_fluid
+      use inittracer,     only: tracer_index, iarr_trc
 #ifdef COSM_RAYS
       use initcosmicrays, only: iarr_crn, iarr_cre, iarr_crs, cosmicray_index
 #endif /* COSM_RAYS */
-#ifdef TRACER
-      use inittracer,     only: tracer_index, iarr_trc
-#endif /* TRACER */
 #ifdef STREAM_CR
       use initstreamingcr,   only: nscr, iarr_all_escr, iarr_all_xfscr, &
       &                            iarr_all_yfscr, iarr_all_zfscr, iarr_all_scr_swp
@@ -187,10 +185,7 @@ contains
       call cosmicray_index(flind)
 #endif /* !COSM_RAYS */
 
-#ifdef TRACER
       call tracer_index(flind)
-#endif /* TRACER */
-
 #ifdef STREAM_CR
       allocate(scrind%scr(nscr))            
       do i = 1, nscr
@@ -219,12 +214,7 @@ contains
       allocate(iarr_all_crs(0))
 #endif /* !COSM_RAYS */
 
-#ifdef TRACER
       allocate(iarr_all_trc(flind%trc%all))
-#else /* !TRACER */
-      allocate(iarr_all_trc(0))
-#endif /* !TRACER */
-
 #ifdef STREAM_CR
       allocate(iarr_all_scr_swp(xdim:zdim, 4*nscr))
       allocate(iarr_all_escr(nscr),iarr_all_xfscr(nscr),iarr_all_yfscr(nscr),iarr_all_zfscr(nscr))
@@ -255,15 +245,11 @@ contains
       iarr_all_cre(1:flind%cre%all) = iarr_cre
       iarr_all_crs(1:flind%crs%all) = iarr_crs
 #endif /* COSM_RAYS */
-
-#ifdef TRACER
       iarr_all_swp(xdim,flind%trc%beg:flind%trc%end) = iarr_trc
       iarr_all_swp(ydim,flind%trc%beg:flind%trc%end) = iarr_trc
       iarr_all_swp(zdim,flind%trc%beg:flind%trc%end) = iarr_trc
 
       iarr_all_trc(1:flind%trc%all) = iarr_trc
-#endif /* TRACER */
-
 #ifdef STREAM_CR
       do i=1, nscr
             call set_scrindex_arrays(scrind%scr(i))

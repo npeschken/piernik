@@ -110,6 +110,7 @@ contains
       use fluids_pub,      only: has_ion, has_dst, has_neu
       use global,          only: cc_mag, which_solver
       use mpisetup,        only: master
+      use named_array_list, only: wna
 #ifdef COSM_RAYS
       use cr_data,         only: cr_names, cr_spectral
 #endif /* COSM_RAYS */
@@ -124,11 +125,11 @@ contains
 
       character(len=dsetnamelen), dimension(:), intent(in) :: vars  !< quantities to be plotted, see dataio::vars
 
-      integer                                              :: i
+      integer                                              :: i, k
       character(len=singlechar)                            :: fc, ord
       character(len=dsetnamelen)                           :: aux, ifmt
 #ifdef COSM_RAYS
-      integer                                              :: k, ke
+      integer                                              :: ke
 #endif /* COSM_RAYS */
 #ifdef STREAM_CR
       integer                                              :: s
@@ -273,6 +274,10 @@ contains
                   call append_var('zfmomzi')
                   if (flind%ion%has_energy) call append_var('zfenei')
                endif
+            case ('trcr')
+               do k = flind%trc%beg, flind%trc%end
+                  call append_var(wna%get_component_name(wna%fi, int(k, kind=4)))
+               enddo
 #ifdef COSM_RAYS
             case ('encr')
                do k = 1, size(cr_names)

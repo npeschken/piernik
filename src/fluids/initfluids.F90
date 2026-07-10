@@ -115,6 +115,7 @@ contains
       use initdust,       only: init_dust
       use initionized,    only: init_ionized
       use initneutral,    only: init_neutral
+      use inittracer,     only: init_tracer
       use mass_defect,    only: init_magic_mass
 #ifdef COSM_RAYS
       use initcosmicrays, only: init_cosmicrays
@@ -125,9 +126,6 @@ contains
 #ifdef STREAM_CR
       use initstreamingcr, only: init_streamingcr
 #endif /* STREAM_CR */
-#ifdef TRACER
-      use inittracer,     only: init_tracer
-#endif /* TRACER */
 #ifdef VERBOSE
       use dataio_pub,     only: printinfo
 #endif /* VERBOSE */
@@ -151,9 +149,7 @@ contains
 #ifdef CRESP
       call init_cresp
 #endif /* CRESP */
-#ifdef TRACER
-      call init_tracer
-#endif /* TRACER */
+      call init_tracer(count([has_ion, has_neu, has_dst]))  ! Cannot use flind%fluids yet
 #ifdef STREAM_CR
       call init_streamingcr                               ! 2.Added this line
 #endif /* STREAM */

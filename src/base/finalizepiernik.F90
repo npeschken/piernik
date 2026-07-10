@@ -51,6 +51,7 @@ contains
       use grid,                  only: cleanup_grid
       use grid_container_ext,    only: cg_extptrs
       use initfluids,            only: cleanup_fluids
+      use inittracer,            only: cleanup_tracer
       use interactions,          only: cleanup_interactions
       use procnames,             only: pnames
       use tag_pool,              only: t_pool
@@ -95,6 +96,7 @@ contains
 #ifdef MULTIGRID
       call cleanup_multigrid;      call nextdot
 #endif /* MULTIGRID */
+      call cleanup_tracer;         call nextdot
       call cleanup_fluids;         call nextdot
 #if defined(GRAV) && defined(NBODY)
       call cleanup_particles;      call nextdot
