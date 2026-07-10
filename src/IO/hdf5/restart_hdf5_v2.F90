@@ -965,7 +965,7 @@ contains
       use domain,           only: dom
       use grid_cont,        only: grid_container
       use hdf5,             only: HID_T, HSIZE_T, H5S_SELECT_SET_F, H5T_NATIVE_DOUBLE, &
-           &                      h5dopen_f, h5dclose_f, h5dget_space_f, h5dread_f, h5gopen_f, h5gclose_f, h5screate_simple_f, h5sselect_hyperslab_f
+           &                      h5dopen_f, h5dclose_f, h5dget_space_f, h5dread_f, h5gopen_f, h5gclose_f, h5screate_simple_f, h5sselect_hyperslab_f, h5sget_simple_extent_dims_f
       use named_array_list, only: qna, wna
       use overlap,          only: is_overlap
 #ifdef NBODY
@@ -988,7 +988,7 @@ contains
       integer(HID_T)                               :: cg_g_id !< cg group identifier
       integer(HID_T)                               :: dset_id
       integer(HID_T)                               :: filespace, memspace
-      integer(HSIZE_T), dimension(:), allocatable  :: dims, off, cnt
+      integer(HSIZE_T), dimension(:), allocatable  :: dims, off, cnt, restart_dims, restart_maxdims
       integer(kind=4)                              :: error                          !< error perhaps should be of type integer(HID_T)
       integer(kind=8), dimension(xdim:zdim)        :: own_off, restart_off, o_size   ! the position and size of the overlapped region
       integer(kind=8), dimension(xdim:zdim, LO:HI) :: own_box_nb, restart_box_nb              ! variants for AT_NO_B
@@ -1067,25 +1067,30 @@ contains
       endif
 
       if (size(wr_lst) > 0) then
-         allocate(dims(ndims+1), off(ndims+1), cnt(ndims+1))
+         allocate(dims(ndims+1), off(ndims+1), cnt(ndims+1), restart_dims(ndims+1), restart_maxdims(ndims+1))
          do i = lbound(wr_lst, dim=1, kind=4), ubound(wr_lst, dim=1, kind=4)
             call pick_off_and_size(wna%lst(wr_lst(i))%restart_mode, o_size, restart_off, own_off)
             dims(:) = [ int(wna%get_dim4(wr_lst(i)), kind=HSIZE_T), int(o_size(:), kind=HSIZE_T) ]
             call h5dopen_f(cg_g_id, wna%lst(wr_lst(i))%name, dset_id, error)
             call h5dget_space_f(dset_id, filespace, error)
+            call h5sget_simple_extent_dims_f(filespace, restart_dims, restart_maxdims, error)
+            if (wna%get_dim4(wr_lst(i)) /= restart_dims(1)) call fluids_warning(wna%lst(i)%name, int(wna%get_dim4(wr_lst(i)), kind=HSIZE_T), restart_dims(1))
+            if (wna%get_dim4(wr_lst(i)) > restart_dims(1)) dims(:) = restart_dims(:)
             off(:) = [ 0_HSIZE_T, restart_off(:) ]
             cnt(:) = 1
             call h5sselect_hyperslab_f(filespace, H5S_SELECT_SET_F, off(:), cnt(:), error, block=dims(:))
             call h5screate_simple_f(size(dims, kind=4), dims(:), memspace, error)
             allocate(a4d(dims(1), dims(1+xdim), dims(1+ydim), dims(1+zdim)))
             call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, a4d, dims(:), error, file_space_id = filespace, mem_space_id = memspace)
-            cg%w(wr_lst(i))%arr(:, cg%is+own_off(xdim):cg%is+own_off(xdim)+o_size(xdim)-1, &
-                 &                 cg%js+own_off(ydim):cg%js+own_off(ydim)+o_size(ydim)-1, &
-                 &                 cg%ks+own_off(zdim):cg%ks+own_off(zdim)+o_size(zdim)-1) = a4d(:,:,:,:)
+            cg%w(wr_lst(i))%arr(1:dims(1), &
+                 &              cg%is+own_off(xdim):cg%is+own_off(xdim)+o_size(xdim)-1, &
+                 &              cg%js+own_off(ydim):cg%js+own_off(ydim)+o_size(ydim)-1, &
+                 &              cg%ks+own_off(zdim):cg%ks+own_off(zdim)+o_size(zdim)-1) = a4d(:, :, :, :)
+            if (wna%get_dim4(wr_lst(i)) > restart_dims(1)) cg%w(wr_lst(i))%arr(restart_dims(1)+1:, :, :, :) = 0.  ! clear components that weren't present in the restart file
             deallocate(a4d)
             call h5dclose_f(dset_id, error)
          enddo
-         deallocate(dims, off, cnt)
+         deallocate(dims, off, cnt, restart_dims, restart_maxdims)
       endif
 
 #ifdef NBODY
@@ -1219,6 +1224,38 @@ contains
          enddo
 
       end subroutine calc_off_and_size
+
+      subroutine fluids_warning(name, size_cur, size_res)
+
+         use constants,  only: INVALID, dsetnamelen
+         use dataio_pub, only: msg, warn
+
+         implicit none
+
+         character(len=dsetnamelen), intent(in) :: name
+         integer(HSIZE_T),           intent(in) :: size_cur, size_res
+
+         logical, save :: warned = .false.
+         integer(HSIZE_T), save :: prev_size_cur = INVALID, prev_size_res = INVALID
+
+         if (warned) warned = ((prev_size_cur == size_cur) .and. (prev_size_res == size_res))  ! check for an additional (unexpected) change
+
+         if (.not. warned) then
+            call warn("[restart_hdf5_v2:read_cg_from_restart:fluids_warning] Number of components in array '" // trim(name) // "' has changed.")
+            write(msg, '(2(a,i0),a)')"[restart_hdf5_v2:read_cg_from_restart:fluids_warning] The restart file contains ", size_res, " components, current setup has ", size_cur, " components."
+            call warn(msg)
+            call warn("[restart_hdf5_v2:read_cg_from_restart:fluids_warning] Hope this is due to a change in the number of tracer fluids, expect crash otherwise.")
+            if (size_cur > size_res) then
+               call warn("[restart_hdf5_v2:read_cg_from_restart:fluids_warning] New components will be initialized with zeroes.")
+            else
+               call warn("[restart_hdf5_v2:read_cg_from_restart:fluids_warning] Extra components from the restart file will be forgotten.")
+            endif
+            prev_size_cur = size_cur
+            prev_size_res = size_res
+            warned = .true.
+         endif
+
+      end subroutine fluids_warning
 
    end subroutine read_cg_from_restart
 
